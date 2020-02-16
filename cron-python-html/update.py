@@ -1,23 +1,122 @@
-from config import THEME, AUTHOR_SOURCES_GIT, CLONE_DESTINATION, GITSRC
-import subprocess
-import markdown
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+from config.config import Config
+from page import Page
 
 
-def clone_all():
-    for authorid, url in AUTHOR_SOURCES_GIT.items():
-        clone(authorid, url)
+class Updater:
+    def __init__(self, config: Config, stdout=sys.stdout, stderr=sys.stderr):
+        self.config = config
+        self.stdout = stdout
+        self.stderr = stderr
+        self.noclone = False
+        self.nogenerate = False
+
+    def log(self, text: str):
+        "Output text to stdout"
+        if self.stdout is None:
+            return
+
+        self.stdout.write(text)
+        self.stdout.write("\n")
+
+    def fail(self, text: str):
+        "Raise an Exception and quit application"
+        raise Exception(text)
+
+    def parse_pages(self, args: list) -> set:
+        """
+        Parse and check pages with arguments and config.
+        returns list of pageconfigs
+        """
+        pages = set()
+
+        if "--allpages" in args:
+            # Return all page configs found in config
+            return set(self.config.PAGES.values())
+
+        next_is_pageid = False
+        for arg in args:
+            if next_is_pageid:
+                pageid = arg
+
+                if pageid not in self.config.PAGES:
+                    self.fail(f"PageID '{pageid}' not found in Config.PAGES.")
+
+                pages.add(self.config.PAGES[pageid])
+                next_is_pageid = False
+            else:
+                next_is_pageid = arg == "--page"
+
+        return pages
+
+    def help(self):
+        self.stdout.write("""Help of updater.py:
+        --cron
+            Tell running by cron
+
+        --allpages
+            Update all pages
+
+        --page pageid [--page pageid2] ..
+            Update specific pages
+
+        --noclone
+            Do not clone again.
+
+        --nogenerate
+            Do not generate content.
+        \n""")
+
+    def main(self, args: list) -> int:
+        """
+        Runs the cron-to-html updater
+
+        :param args: Command line args
+            see self.help()
+        :return: Exit code
+        """
+
+        if "--help" in args:
+            self.help()
+            return 0
+
+        pages = self.parse_pages(args)
+
+        self.noclone = "--noclone" in args
+        self.nogenerate = "--nogenerate" in args
+
+        if len(pages) == 0:
+            self.log("No pages configured/selected.")
+
+        for page in pages:
+            self.process_page(page)
+
+        return 0
+
+    def process_page(self, pageconfig):
+        self.log(f"Processing page '{pageconfig.PAGEID}'...")
+        p = Page(self.config, pageconfig)
+        p.printpaths()
+        if not self.noclone:
+            p.clone_authors()
+            p.clone_templates()
+        if not self.nogenerate:
+            p.generate_content()
+        self.log(f"Done processing of '{pageconfig.PAGEID}'.")
 
 
-def clone(authorid: str, url: str):
-    cmd = 'git', 'clone', url, f"{CLONE_DESTINATION}/{authorid}"
+if __name__ == "__main__":
+    # Create app and assign config
+    updater = Updater(Config())
 
-    with open(f"{CLONE_DESTINATION}/{authorid}.log", "w") as log:
-        with open(f"{CLONE_DESTINATION}/{authorid}.err", "w") as err:
-            try:
-                subprocess.run(cmd, stdout=log, stderr=err)
-            except Exception as e:
-                err.write("\n\nError while running git: ")
-                err.write(" ".join(e.args))
+    # Run app
+    try:
+        exitcode = updater.main(sys.argv[1:])  # Pass all command line options to args
+    except Exception as e:
+        print("General error:", e)
+        exitcode = 1    # Return your exit code to the caller and exit gracefully.
 
-
-clone_all()
+    sys.exit(exitcode)

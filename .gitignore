@@ -10,4 +10,4 @@ venv/
 .idea/*
 
 # Config files
-config.py
+# config.py

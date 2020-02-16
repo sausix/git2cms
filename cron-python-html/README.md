@@ -23,6 +23,6 @@ Edit user's crontab:
 Choose a random minute and always use absolute paths to programs and scripts.  
 Don't rush git provider with too much git requests. Hourly is a good start.
 ```
-#minute   hour    day_of_month    month   day_of_week     command
-12        *       *               *       *               /usr/bin/python3 /home/git2cms/dir/update.py --repo all
+#minute  hour  day_of_month  month  day_of_week  command
+12       *     *             *      *            /usr/bin/python3 /home/git2cms/dir/update.py --cron --allpages
 ```
