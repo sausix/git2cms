@@ -1,0 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+venv/
+*.egg-info/
+
+# Intellij IDEA files
+.idea/*
+
+# Config files
+config.py

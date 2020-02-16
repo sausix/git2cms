@@ -1,0 +1,17 @@
+# Git source for cms backend updates
+GITSRC = ""
+
+# Base directory for other configs
+BASEDIR = "/home/git2cms"
+
+# Where to clone everything
+CLONE_DESTINATION = f"{BASEDIR}/git"
+
+# Where to write generate content
+CONTENT_DIR = f"{BASEDIR}/content"
+
+# Where to find themes
+THEME = f"{BASEDIR}/themes"
+
+# Content sources
+AUTHOR_SOURCES_GIT = {"sausix_main": "https://github.com/sausix/hackersweblog.net-author.git"}
