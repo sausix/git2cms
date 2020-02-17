@@ -1,6 +1,8 @@
 import subprocess
 import sys
 import pathlib
+from pagecontent import PageContent
+from repo import RepoDir
 
 
 class Page:
@@ -9,17 +11,25 @@ class Page:
         self.pageconfig = pageconfig
         self._create_absolute_pagepaths()
         self._check_pagepaths()
-
         self.stdout = stdout
+
         if self.stdout is None:
-            if "logfile" in self.pageconfig.WRITE_DESTINATIONS:
-                # Logfile configured
-                if len(self.pageconfig.WRITE_DESTINATIONS["logfile"]):
-                    # Use logfile if not empty
-                    self.stdout = open(self.pageconfig.WRITE_DESTINATIONS["logfile"], "w")
-            else:
+            self.stdout = self.pageconfig.WRITE_DESTINATIONS.get("LOGFILE", NotImplemented)
+
+            if self.stdout is NotImplemented:
                 # Use stdout from process if no logfile configured.
                 self.stdout = sys.stdout
+            elif type(self.stdout) is str:
+                # Logfile configured
+                if len(str(self.stdout)):
+                    # Use logfile if not empty
+                    self.stdout = open(str(self.stdout), "w")
+
+        self.contentgen = PageContent(
+            self.pageconfig.WRITE_DESTINATIONS['CONTENT'],
+            self.pageconfig.CONTENT_SETTINGS,
+            self.stdout
+        )
 
     def log(self, text: str):
         "Output text to stdout"
@@ -33,15 +43,6 @@ class Page:
         "Raise an Exception and quit application"
         raise Exception(text)
 
-    def printpaths(self):
-        self.log("CLONE_DESTINATIONS")
-        for key, value in self.pageconfig.CLONE_DESTINATIONS.items():
-            self.log(f"{key}: {value}")
-
-        self.log("WRITE_DESTINATIONS")
-        for key, value in self.pageconfig.WRITE_DESTINATIONS.items():
-            self.log(f"{key}: {value}")
-
     def _create_absolute_pagepaths(self):
         if len(self.pageconfig.ROOT) == 0:
             self.pageconfig.ROOT = self.config.ROOT
@@ -50,61 +51,83 @@ class Page:
             self.pageconfig.ROOT = f"{self.config.ROOT}/{self.pageconfig.ROOT}"
 
         self.pageconfig.CLONE_DESTINATIONS = {
-            key: path if path[:1] == "/" else self.pageconfig.ROOT + "/" + path for key, path in self.pageconfig.CLONE_DESTINATIONS.items()
+            key: path if path[:1] == "/"
+            else self.pageconfig.ROOT + "/" + path
+            for key, path in self.pageconfig.CLONE_DESTINATIONS.items()
         }
 
         self.pageconfig.WRITE_DESTINATIONS = {
-            key: path if path[:1] == "/" or len(path) == 0 else self.pageconfig.ROOT + "/" + path for key, path in self.pageconfig.WRITE_DESTINATIONS.items()
+            key: path if path[:1] == "/" or len(path) == 0
+            else self.pageconfig.ROOT + "/" + path
+            for key, path in self.pageconfig.WRITE_DESTINATIONS.items()
         }
 
     def _check_pagepaths(self):
-        print(self.pageconfig.CLONE_DESTINATIONS)
-
         for path in self.pageconfig.CLONE_DESTINATIONS.values():
             p = pathlib.Path(path)
             p.mkdir(parents=True, exist_ok=True)
 
-        if "logfile" in self.pageconfig.WRITE_DESTINATIONS:
-            if len(self.pageconfig.WRITE_DESTINATIONS["logfile"]):
-                p = pathlib.Path(self.pageconfig.WRITE_DESTINATIONS["logfile"])
+        if "LOGFILE" in self.pageconfig.WRITE_DESTINATIONS:
+            if len(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"]):
+                p = pathlib.Path(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"])
                 folder = p.parent
                 folder.mkdir(parents=True, exist_ok=True)
+
+    def clone_all(self):
+        self.clone_authors()
+        self.clone_templates()
 
     def clone_authors(self):
         for authorgitid, url in self.pageconfig.GIT_SOURCES_AUTHORS.items():
             self.clone_author(authorgitid, url)
 
-    def clone_author(self, authorgitid: str, url: str):
-        authordir = f"{self.pageconfig.CLONE_DESTINATIONS['authors']}/{authorgitid}"
-
-        cmd = 'git', 'clone', url, authordir
-
-        with open(f"{authordir}.log", "w") as log:
-            with open(f"{authordir}.err", "w") as err:
-                try:
-                    subprocess.run(cmd, stdout=log, stderr=err)
-                except Exception as e:
-                    err.write(f"Error while running git on author {authorgitid}: \n")
-                    err.write(" ".join(e.args))
-                    err.write("\n")
-
     def clone_templates(self):
         for templategitid, url in self.pageconfig.GIT_SOURCES_TEMPLATES.items():
             self.clone_template(templategitid, url)
 
-    def clone_template(self, templateid: str, url: str):
-        templatesdir = f"{self.pageconfig.CLONE_DESTINATIONS['templates']}/{templateid}"
+    def open_repos_in_folder(self, folder: str) -> dict:
+        ret = dict()
 
-        cmd = 'git', 'clone', url, templatesdir
+        f = pathlib.Path(folder)
+        for element in f.iterdir():
+            if element.is_dir():
+                ret[element.name] = RepoDir(element, element.name)
 
-        with open(f"{templatesdir}.log", "w") as log:
-            with open(f"{templatesdir}.err", "w") as err:
+        return ret
+
+    def clone(self, repoid: str, folder: str, url: str):
+        f = pathlib.Path(folder)
+        if f.exists():
+            # git --git-dir=sausix_main/.git pull "https://github.com/sausix/hackersweblog.net-author.git"
+            self.log(f"Pulling {repoid} from {url}")
+            cmds = ("git", f"-C {folder}", "pull", url),
+        else:
+            # git clone "https://github.com/sausix/hackersweblog.net-author.git" sausix_main
+            self.log(f"Cloning {repoid} from {url}")
+            cmds = ("git", "clone", url, folder),
+
+        with open(f"{folder}.log", "w") as log:
+            with open(f"{folder}.err", "w") as err:
                 try:
-                    subprocess.run(cmd, stdout=log, stderr=err)
+                    for cmd in cmds:
+                        res = subprocess.run(cmd, stdout=log, stderr=err)
+                        if res.returncode:
+                            raise Exception(f"git command returned {res.returncode}")
+
                 except Exception as e:
-                    err.write(f"Error while running git on template {templateid}: \n")
+                    err.write(f"Error while running git on {repoid}: \n")
                     err.write(" ".join(e.args))
                     err.write("\n")
 
-    def generate_content(self):
-        pass
+    def clone_author(self, authorgitid: str, url: str):
+        authordir = f"{self.pageconfig.CLONE_DESTINATIONS['AUTHORS']}/{authorgitid}"
+        self.clone(authorgitid, authordir, url)
+
+    def clone_template(self, templateid: str, url: str):
+        templatesdir = f"{self.pageconfig.CLONE_DESTINATIONS['TEMPLATES']}/{templateid}"
+        self.clone(templateid, templatesdir, url)
+
+    def generate_content(self, onlywhenchanged: bool = True):
+        repos = {key: self.open_repos_in_folder(self.pageconfig.CLONE_DESTINATIONS[key]) for key in self.pageconfig.CLONE_DESTINATIONS.keys()}
+        self.contentgen.generate(repos, onlywhenchanged)
+

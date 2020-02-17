@@ -13,6 +13,8 @@ class Updater:
         self.stderr = stderr
         self.noclone = False
         self.nogenerate = False
+        self.generate_on_changes = False
+        self.fromcron = False
 
     def log(self, text: str):
         "Output text to stdout"
@@ -55,7 +57,7 @@ class Updater:
     def help(self):
         self.stdout.write("""Help of updater.py:
         --cron
-            Tell running by cron
+            Tell running by cron. Content generation only on demand.
 
         --allpages
             Update all pages
@@ -87,6 +89,8 @@ class Updater:
 
         self.noclone = "--noclone" in args
         self.nogenerate = "--nogenerate" in args
+        self.fromcron = "--cron" in args
+        self.generate_on_changes = self.fromcron
 
         if len(pages) == 0:
             self.log("No pages configured/selected.")
@@ -98,13 +102,12 @@ class Updater:
 
     def process_page(self, pageconfig):
         self.log(f"Processing page '{pageconfig.PAGEID}'...")
-        p = Page(self.config, pageconfig)
-        p.printpaths()
+        p = Page(self.config, pageconfig, stdout=None if self.fromcron else self.stdout)
         if not self.noclone:
             p.clone_authors()
             p.clone_templates()
         if not self.nogenerate:
-            p.generate_content()
+            p.generate_content(self.generate_on_changes)
         self.log(f"Done processing of '{pageconfig.PAGEID}'.")
 
 
@@ -113,10 +116,10 @@ if __name__ == "__main__":
     updater = Updater(Config())
 
     # Run app
-    try:
-        exitcode = updater.main(sys.argv[1:])  # Pass all command line options to args
-    except Exception as e:
-        print("General error:", e)
-        exitcode = 1    # Return your exit code to the caller and exit gracefully.
+    #try:
+    exitcode = updater.main(sys.argv[1:])  # Pass all command line options to args
+    #except Exception as e:
+    #    updater.fail("General error" + e)
+    #    exitcode = 1    # Return your exit code to the caller and exit gracefully.
 
     sys.exit(exitcode)
