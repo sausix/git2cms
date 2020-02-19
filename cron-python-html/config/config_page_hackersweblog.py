@@ -6,6 +6,9 @@ class HackersweblogConfig:
     # Authors need to grant their content to this page id in their meta.md
     PAGEID = "hackersweblog.net"
 
+    # For absolute URL generatings
+    BASEADDRESS = "https://hackersweblog.net"
+
     # Root directory below Config.ROOT or absolute for project's working files
     ROOT = f"{PAGEID}"
 
@@ -27,7 +30,7 @@ class HackersweblogConfig:
     #  Key is just descriptive for the repository url. Unique authors may have multiple repositories.
     GIT_SOURCES_AUTHORS = {
         "sausix_main": "https://github.com/sausix/hackersweblog.net-author.git",
-        # "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
+        "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
     }
 
     # Where to write generated content to.
@@ -51,11 +54,12 @@ class HackersweblogConfig:
         # If no model defined:
         "MODEL_DEFAULT": "index.html",
 
-        # If defined template unknown
+        # If defined model unknown
         "MODEL_ON_MISSING": "index.html",
 
         # Create only index.html in named subfolders
-        # INDEX_ONLY = "index.html"
+        # "INDEX_ONLY": "index.html"
+        "INDEX_ONLY": None,
 
         # Generate extensions
         #   file.md to file.html
@@ -63,4 +67,10 @@ class HackersweblogConfig:
         #   file.en.md to file/en.html
         #   file.en.md to file/en/index.html
         "CONTENT_FILE_EXTENSION": ".html",
+
+        # If False (default):
+        #   All files will be created directly in webserver's root. Collisions will warn or fail content generations.
+        # If True:
+        #   Isolated folders will be created for each category: "/content", "/authors", "/static", "/theme"
+        "ISOLATED": False,
     }

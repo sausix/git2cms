@@ -12,6 +12,7 @@ class Updater:
         self.stdout = stdout
         self.stderr = stderr
         self.noclone = False
+        self.noclonethemes = False
         self.nogenerate = False
         self.generate_on_changes = False
         self.fromcron = False
@@ -66,7 +67,10 @@ class Updater:
             Update specific pages
 
         --noclone
-            Do not clone again.
+            Do not think about cloning.
+
+        --noclone-themes
+            Do not clone themes.
 
         --nogenerate
             Do not generate content.
@@ -88,6 +92,7 @@ class Updater:
         pages = self.parse_pages(args)
 
         self.noclone = "--noclone" in args
+        self.noclonethemes = "--noclone-themes" in args
         self.nogenerate = "--nogenerate" in args
         self.fromcron = "--cron" in args
         self.generate_on_changes = self.fromcron
@@ -105,7 +110,8 @@ class Updater:
         p = Page(self.config, pageconfig, stdout=None if self.fromcron else self.stdout)
         if not self.noclone:
             p.clone_authors()
-            p.clone_templates()
+            if not self.noclonethemes:
+                p.clone_templates()
         if not self.nogenerate:
             p.generate_content(self.generate_on_changes)
         self.log(f"Done processing of '{pageconfig.PAGEID}'.")
