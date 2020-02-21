@@ -13,6 +13,9 @@ Keep contents in various git repositories and show it combined on a web page.
 ### cron-python-html
 Creates static html files on demand or by cron.
 
+Requirements:
+* markdown, PyPI: `markdown`
+* yaml, PyPI: `PyYAML`
 
 ### django
 More interactive approach including statistics and search.

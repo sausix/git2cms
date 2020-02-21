@@ -48,7 +48,7 @@ class RepoDir:
         for element in directory.iterdir():
             if element.is_file():
                 if element.name[:1] != ".":
-                    key = element.relative_to(self.path)
+                    key = str(element.relative_to(self.path))
                     self._files[key] = element
 
         # Then subdirs if recurse

@@ -101,6 +101,7 @@ class PageContent:
                 # Load meta info of author
                 self.log(f"Processing meta of author {repoid}.")
                 headers, content = MDFileParser(meta)
+                print(headers, content)
 
 
 
