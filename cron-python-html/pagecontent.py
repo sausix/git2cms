@@ -1,19 +1,20 @@
 import markdown
 from repo import RepoDir
 from fileparser import MDFileParser
-
+from pathlib import Path
+import re
 
 """
 ---
-Title: Generelle Infos
-Date: 2020-02-15
-Publish: Hidden
-Publish-after: 2020-02-15 12:00
-Description: Diese Seite beinhaltet ein paar Markdown-Elemente
-Tags: demo, markdown
-Source: http://where-i-stole-my-content.com/article.html
-Linkto: some-category/other-content-pointed-to
-Linkwith: some-category/other-content-linked-vice-versa
+title: Generelle Infos
+date: 2020-02-15
+publish: Hidden
+publish-after: 2020-02-15 12:00
+description: Diese Seite beinhaltet ein paar Markdown-Elemente
+tags: demo, markdown
+source: http://where-i-stole-my-content.com/article.html
+linkto: some-category/other-content-pointed-to
+linkwith: some-category/other-content-linked-vice-versa
 ---
 """
 AUTHORMETA = "author/meta.md"
@@ -53,6 +54,36 @@ class PageContent:
 
         return found
 
+    def read_authors(self, authors: dict) -> dict:
+        "Read all authors"
+
+        is_author_lang_content = re.compile(r"^author[/\\]([a-z]{2})\.md$")
+
+        ret_authors = dict()  # nickname
+        for repoid, authorrepo in authors.items():  # type: str, RepoDir
+            files = authorrepo.files
+            meta = files.get(AUTHORMETA)
+            if meta is None:
+                self.warn(f"There is no author's meta file '{AUTHORMETA}' in repo {repoid}.")
+                continue
+
+            # Load meta info of author
+            self.log(f"Processing meta of author {repoid}.")
+            headers, content = MDFileParser(meta)
+
+            headers["content"] = content
+            for path, file in files.items():  # type: str, Path
+                m = is_author_lang_content.search(path)
+                if m:
+                    self.log(f"Parsing {path}")
+                    lang = m.group(1)
+                    headers[f"content/{lang}"] = file.read_text(encoding="UTF-8")
+
+            # Append author
+            ret_authors[headers["nickname"]] = headers
+
+        return ret_authors
+
     def generate(self, repos: dict, onlywhenchanged: bool = False):
         """
         Generate all content from authors and templates
@@ -67,43 +98,7 @@ class PageContent:
             if not self.need_regenerate([repo for repo in [repoclass for repoclass in repos.values()]]):
                 return
 
-        """
-        /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main
-        README.md /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/README.md
-        content/README.md /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/content/README.md
-        author/meta.md /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/author/meta.md
-        author/en.md /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/author/en.md
-        author/de.md /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/author/de.md
-        author/avatar.jpg /tmp/git2cms/hackersweblog.net/git/authors/deatplayer_main/author/avatar.jpg
-
-        /tmp/git2cms/hackersweblog.net/git/authors/sausix_main
-        README.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/README.md
-        author/meta.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/author/meta.md
-        author/en.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/author/en.md
-        author/de.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/author/de.md
-        author/avatar.jpg /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/author/avatar.jpg
-
-        content/seitenaufbau.de.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/content/seitenaufbau.de.md
-        content/demo/demofile.en.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/content/demo/demofile.en.md
-        content/demo/demofile.de.md /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/content/demo/demofile.de.md
-        content/demo/demo-photo.jpg /tmp/git2cms/hackersweblog.net/git/authors/sausix_main/content/demo/demo-photo.jpg
-        """
-
-        # Read all authors
-        # repos["AUTHORS"]
-        authors = dict()  # nickname
-        for repoid, authorrepo in repos["AUTHORS"].items():  # type: RepoDir
-            files = authorrepo.files
-            meta = files.get(AUTHORMETA)
-            if meta is None:
-                self.warn(f"There is no author's meta file '{AUTHORMETA}' in repo {repoid}.")
-            else:
-                # Load meta info of author
-                self.log(f"Processing meta of author {repoid}.")
-                headers, content = MDFileParser(meta)
-                print(headers, content)
-
-
+        authors = self.read_authors(repos["AUTHORS"])
 
 
 

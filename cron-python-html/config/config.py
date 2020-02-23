@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from config.config_page_hackersweblog import HackersweblogConfig
 
 
@@ -11,7 +13,7 @@ class Config:
 
     # Absolute root directory for all working files
     # ROOT = "/home/git2cms"
-    ROOT = "/tmp/git2cms"
+    ROOT = "/media/big/NextCloud/Projekte/Python/git2cms/cron-python-html/workfiles"
 
     # Active webpages. Import them on top of this file.
     PAGES = {

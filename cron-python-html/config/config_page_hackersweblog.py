@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 class HackersweblogConfig:
     """
     Config for webpage content creation of a specific page
@@ -18,19 +20,21 @@ class HackersweblogConfig:
         "AUTHORS": "git/authors",
     }
 
-    # Template sources
-    #  Dictionary of template sources to clone.
-    #  Key is template id.
-    GIT_SOURCES_TEMPLATES = {
-        f"{PAGEID}": "https://github.com/DeatPlayer/hackersweblog.net-page-template",
-    }
+    GIT_SOURCES = {
+        # Template sources
+        #  Dictionary of template sources to clone.
+        #  Key is template id.
+        "TEMPLATES": {
+            f"{PAGEID}": "https://github.com/DeatPlayer/hackersweblog.net-page-template"
+        },
 
-    # Content sources
-    #  Dictionary of authors and their sources to clone.
-    #  Key is just descriptive for the repository url. Unique authors may have multiple repositories.
-    GIT_SOURCES_AUTHORS = {
-        "sausix_main": "https://github.com/sausix/hackersweblog.net-author.git",
-        "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
+        # Content sources
+        #  Dictionary of authors and their sources to clone.
+        #  Key is just descriptive for the repository url. Unique authors may have multiple repositories.
+        "AUTHORS": {
+            "sausix_main": "https://github.com/sausix/hackersweblog.net-author.git",
+            "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
+        }
     }
 
     # Where to write generated content to.
@@ -51,14 +55,8 @@ class HackersweblogConfig:
         # If defined template unknown
         "TEMPLATE_ON_MISSING": f"{PAGEID}",
 
-        # If no model defined:
-        "MODEL_DEFAULT": "index.html",
-
-        # If defined model unknown
-        "MODEL_ON_MISSING": "index.html",
-
         # Create only index.html in named subfolders
-        # "INDEX_ONLY": "index.html"
+        # "INDEX_ONLY": [None, "index.html"]
         "INDEX_ONLY": None,
 
         # Generate extensions

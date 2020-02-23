@@ -1,6 +1,6 @@
 import subprocess
 import sys
-import pathlib
+from pathlib import Path
 from pagecontent import PageContent
 from repo import RepoDir
 
@@ -64,12 +64,12 @@ class Page:
 
     def _check_pagepaths(self):
         for path in self.pageconfig.CLONE_DESTINATIONS.values():
-            p = pathlib.Path(path)
+            p = Path(path)
             p.mkdir(parents=True, exist_ok=True)
 
         if "LOGFILE" in self.pageconfig.WRITE_DESTINATIONS:
             if len(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"]):
-                p = pathlib.Path(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"])
+                p = Path(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"])
                 folder = p.parent
                 folder.mkdir(parents=True, exist_ok=True)
 
@@ -78,25 +78,30 @@ class Page:
         self.clone_templates()
 
     def clone_authors(self):
-        for authorgitid, url in self.pageconfig.GIT_SOURCES_AUTHORS.items():
-            self.clone_author(authorgitid, url)
+        key = "AUTHORS"
+        for gitid, url in self.pageconfig.GIT_SOURCES[key].items():
+            self.clone_by_key(key, gitid, url)
 
     def clone_templates(self):
-        for templategitid, url in self.pageconfig.GIT_SOURCES_TEMPLATES.items():
-            self.clone_template(templategitid, url)
+        key = "TEMPLATES"
+        for gitid, url in self.pageconfig.GIT_SOURCES[key].items():
+            self.clone_by_key(key, gitid, url)
 
-    def open_repos_in_folder(self, folder: str) -> dict:
+    def open_repos_by_key(self, key: str) -> dict:
         ret = dict()
 
-        f = pathlib.Path(folder)
-        for element in f.iterdir():
-            if element.is_dir():
-                ret[element.name] = RepoDir(element, element.name)
+        clonedir = self.pageconfig.CLONE_DESTINATIONS[key]
+        rootfolder = Path(clonedir)
+
+        for gitid in self.pageconfig.GIT_SOURCES[key].keys():
+            folder = rootfolder / Path(gitid)
+            if folder.is_dir():
+                ret[gitid] = RepoDir(folder, gitid)
 
         return ret
 
     def clone(self, repoid: str, folder: str, url: str):
-        f = pathlib.Path(folder)
+        f = Path(folder)
         if f.exists():
             # git --git-dir=sausix_main/.git pull "https://github.com/sausix/hackersweblog.net-author.git"
             self.log(f"Pulling {repoid} from {url}")
@@ -119,15 +124,11 @@ class Page:
                     err.write(" ".join(e.args))
                     err.write("\n")
 
-    def clone_author(self, authorgitid: str, url: str):
-        authordir = f"{self.pageconfig.CLONE_DESTINATIONS['AUTHORS']}/{authorgitid}"
-        self.clone(authorgitid, authordir, url)
-
-    def clone_template(self, templateid: str, url: str):
-        templatesdir = f"{self.pageconfig.CLONE_DESTINATIONS['TEMPLATES']}/{templateid}"
-        self.clone(templateid, templatesdir, url)
+    def clone_by_key(self, key: str, gitid: str, url: str):
+        directory = f"{self.pageconfig.CLONE_DESTINATIONS[key]}/{gitid}"
+        self.clone(gitid, directory, url)
 
     def generate_content(self, onlywhenchanged: bool = True):
-        repos = {key: self.open_repos_in_folder(self.pageconfig.CLONE_DESTINATIONS[key]) for key in self.pageconfig.CLONE_DESTINATIONS.keys()}
+        repos = {key: self.open_repos_by_key(key) for key in self.pageconfig.GIT_SOURCES.keys()}
         self.contentgen.generate(repos, onlywhenchanged)
 
