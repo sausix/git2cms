@@ -17,7 +17,14 @@ linkto: some-category/other-content-pointed-to
 linkwith: some-category/other-content-linked-vice-versa
 ---
 """
-AUTHORMETA = "author/meta.md"
+AUTHORMETA_FILE = "author/meta.md"
+AUTHORMETA_BASEDICT = {
+    "langs": set(),
+    "contents": dict()
+}
+
+is_author_lang_content = re.compile(r"^author/([a-z]{2})\.md$")
+is_content_lang_md = re.compile(r"^content/(.*)\.([a-z]{2})\.md$")
 
 
 class PageContent:
@@ -54,35 +61,57 @@ class PageContent:
 
         return found
 
-    def read_authors(self, authors: dict) -> dict:
+    def read_authors(self, authorrepos: dict) -> dict:
         "Read all authors"
 
-        is_author_lang_content = re.compile(r"^author[/\\]([a-z]{2})\.md$")
-
-        ret_authors = dict()  # nickname
-        for repoid, authorrepo in authors.items():  # type: str, RepoDir
+        ret_authors = dict()  # nickname -> author_meta_dict
+        for repoid, authorrepo in authorrepos.items():  # type: str, RepoDir
             files = authorrepo.files
-            meta = files.get(AUTHORMETA)
+            meta = files.get(AUTHORMETA_FILE)
             if meta is None:
-                self.warn(f"There is no author's meta file '{AUTHORMETA}' in repo {repoid}.")
+                self.warn(f"There is no author's meta file '{AUTHORMETA_FILE}' in repo {repoid}.")
                 continue
 
             # Load meta info of author
             self.log(f"Processing meta of author {repoid}.")
             headers, content = MDFileParser(meta)
 
-            headers["content"] = content
+            # Save author's content
+            headers["content"] = markdown.markdown(content)
             for path, file in files.items():  # type: str, Path
                 m = is_author_lang_content.search(path)
                 if m:
                     self.log(f"Parsing {path}")
                     lang = m.group(1)
-                    headers[f"content/{lang}"] = file.read_text(encoding="UTF-8")
+                    headers[f"content/{lang}"] = markdown.markdown(file.read_text(encoding="UTF-8"))
+
+            headers.update(AUTHORMETA_BASEDICT)
 
             # Append author
             ret_authors[headers["nickname"]] = headers
 
         return ret_authors
+
+    def read_contents(self, authors: dict, authorrepos: dict) -> dict:
+        "Read all contents of authors"
+
+        ret_contents = dict()  # path
+        for repoid, authorrepo in authorrepos.items():  # type: str, RepoDir
+            for fpath, file in authorrepo.files.items():  # type: str, Path
+                m = is_content_lang_md.search(fpath)
+                if m:
+                    self.log(f"Reading content of: {fpath}")
+                    headers, content = MDFileParser(file)
+
+                    path = m.group(1)
+                    lang = m.group(2)
+
+                    # ret_contents[]
+
+                else:
+                    self.log(f"Skipping content of: {fpath}")
+
+        return ret_contents
 
     def generate(self, repos: dict, onlywhenchanged: bool = False):
         """
@@ -99,17 +128,9 @@ class PageContent:
                 return
 
         authors = self.read_authors(repos["AUTHORS"])
-
-
-
-        # m = markdown.Markdown()
-        #m.reset()
-
-        # markdown.markdownFromFile()
-
+        contents = self.read_contents(authors, repos["AUTHORS"])
 
         # Store each repo date as last processed date.
         for typename, repodict in repos.items():
             for repoid, repo in repodict.items():
                 repo.store_process_date()
-

@@ -105,7 +105,7 @@ class Page:
         if f.exists():
             # git --git-dir=sausix_main/.git pull "https://github.com/sausix/hackersweblog.net-author.git"
             self.log(f"Pulling {repoid} from {url}")
-            cmds = ("git", f"-C {folder}", "pull", url),
+            cmds = ("git", "-C", folder, "pull", url),
         else:
             # git clone "https://github.com/sausix/hackersweblog.net-author.git" sausix_main
             self.log(f"Cloning {repoid} from {url}")
@@ -131,4 +131,3 @@ class Page:
     def generate_content(self, onlywhenchanged: bool = True):
         repos = {key: self.open_repos_by_key(key) for key in self.pageconfig.GIT_SOURCES.keys()}
         self.contentgen.generate(repos, onlywhenchanged)
-

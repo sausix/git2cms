@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+
 class HackersweblogConfig:
     """
     Config for webpage content creation of a specific page
@@ -66,9 +67,6 @@ class HackersweblogConfig:
         #   file.en.md to file/en/index.html
         "CONTENT_FILE_EXTENSION": ".html",
 
-        # If False (default):
-        #   All files will be created directly in webserver's root. Collisions will warn or fail content generations.
-        # If True:
-        #   Isolated folders will be created for each category: "/content", "/authors", "/static", "/theme"
-        "ISOLATED": False,
+        # If a content has no image tag set, use this one:
+        "CONTENT_IMAGE": "content.jpg"
     }
