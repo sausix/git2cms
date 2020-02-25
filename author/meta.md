@@ -4,7 +4,7 @@ fullname: git2cms backend
 birth: 2020-02-15
 social:
   https://github.com/sausix/git2cms: github
-avatar: git2cms.jpg
+avatar: git2cms.png
 contentgrant: *
 lang: en
 ---
