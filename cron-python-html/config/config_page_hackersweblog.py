@@ -35,16 +35,14 @@ class HackersweblogConfig:
         "AUTHORS": {
             "sausix_main": "https://github.com/sausix/hackersweblog.net-author.git",
             "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
+            "git2cms_manual": "https://github.com/sausix/git2cms.git"
         }
     }
 
     # Where to write generated content to.
     #  Script-User need either write access to this directory or http server user need read access there.
-    WRITE_DESTINATIONS = {
-        # "content": "/srv/http/hackersweblog.net/beta",  # Absolute path!
-        "CONTENT": "content",  # Absolute path!
-        "LOGFILE": "content-create.log"  # Relative path.
-    }
+    # WEBROOT = "/srv/http/hackersweblog.net/beta"  # Absolute path!
+    WEBROOT = "content"
 
     CONTENT_SETTINGS = {
         # Preferred language if not specified. Main language of page.
@@ -56,17 +54,21 @@ class HackersweblogConfig:
         # If defined template unknown
         "TEMPLATE_ON_MISSING": f"{PAGEID}",
 
-        # Create only index.html in named subfolders
-        # "INDEX_ONLY": [None, "index.html"]
-        "INDEX_ONLY": None,
+        # Index file name of root documents
+        "INDEX_FILE": "index.html",
+
+        # Create INDEX_FILE in each named subfolder
+        "INDEX_ONLY": False,
 
         # Generate extensions
+        #  INDEX_ONLY = False
         #   file.md to file.html
-        #   file.md to file/index.html
         #   file.en.md to file/en.html
+        #  INDEX_ONLY = True
+        #   file.md to file/index.html
         #   file.en.md to file/en/index.html
         "CONTENT_FILE_EXTENSION": ".html",
 
-        # If a content has no image tag set, use this one:
+        # If a content has no image tag set and non of "tag".jpg in content.tags can be found, use this one:
         "CONTENT_IMAGE": "content.jpg"
     }

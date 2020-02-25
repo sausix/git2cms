@@ -26,8 +26,8 @@ class Page:
                     self.stdout = open(str(self.stdout), "w")
 
         self.contentgen = PageContent(
-            self.pageconfig.WRITE_DESTINATIONS['CONTENT'],
-            self.pageconfig.CONTENT_SETTINGS,
+            self.config,
+            self.pageconfig,
             self.stdout
         )
 

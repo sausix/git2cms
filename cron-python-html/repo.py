@@ -65,3 +65,7 @@ class RepoDir:
             self.loadfiles(self.path)
 
         return self._files
+
+    @property
+    def origin(self) -> str:
+        return ""
