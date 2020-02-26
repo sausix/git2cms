@@ -1,8 +1,11 @@
+from typing import Union, Tuple
+
 import markdown
 from repo import RepoDir
-from fileparser import MDFileParser
+from fileparser import parse_md_file
 from pathlib import Path
 from config.config import Config
+from streamlogging import Logger
 import re
 
 """
@@ -19,90 +22,90 @@ linkwith: some-category/other-content-linked-vice-versa
 ---
 """
 AUTHORMETA_FILE = "author/meta.md"
-AUTHORCONTENT_FOLDER = "content"
 
 is_author_lang_content = re.compile(r"^author/([a-z]{2})\.md$")
 is_content_id_lang_md = re.compile(r"^content/(.*)\.([a-z]{2})\.md$")
 is_directory_lang_md = re.compile(r"^content/?(.*)/([a-z]{2})\.md$")
 is_md = re.compile(r"^content/.*\.md$")
+is_valid_single_lang = re.compile(r"^[a-z]{2}$")
 
 
 class PageContent:
-    def __init__(self, config: Config, pageconfig, stdout=None):
+    def __init__(self, config: Config, pageconfig, logger: Logger = None):
         self.config = config
         self.pageconfig = pageconfig
         self.writefolder = Path(self.pageconfig.WEBROOT)
-        self.stdout = stdout
-
-    def log(self, text: str):
-        "Output text to stdout"
-        if self.stdout is None:
-            return
-
-        self.stdout.write(text)
-        self.stdout.write("\n")
-
-    def warn(self, text: str):
-        "Output warning to stdout"
-        if self.stdout is None:
-            return
-
-        self.stdout.write("#WARNING: ")
-        self.stdout.write(text)
-        self.stdout.write("\n")
+        self.log = logger
 
     def need_regenerate(self, repolist: list) -> bool:
         found = False
 
-        self.log("Checking if sources have updated...")
+        self.log.out("Checking if sources have updated...")
         for repo in repolist:  # type: RepoDir
             if repo.commit_date_newer():
-                self.log(f"Repo has updated: {repo.repoid}")
+                self.log.out(f"Repo has updated: {repo.repoid}")
                 found = True
 
         return found
 
-    def read_authors_with_contents(self, authorrepos: dict) -> dict:
-        "Read all authors"
-
+    def read_authors_with_contents(self, authorrepos: dict) -> Tuple[dict, list]:
+        """Read all authors
+        Better deep destroy the result after elements are not used anymore anywhere.
+        """
         ret_repos = dict()  # repoid -> author_meta_dict
+
+        # Collect all lists and dicts containing references to other objects
+        garbage = list()
+
         for repoid, authorrepo in authorrepos.items():  # type: str, RepoDir
             files = authorrepo.files
             meta = files.get(AUTHORMETA_FILE)
             if meta is None:
-                self.warn(f"There is no author's meta file '{AUTHORMETA_FILE}' in repo {repoid}.")
+                self.log.warn(f"There is no author's meta file '{AUTHORMETA_FILE}' in repo {repoid}. Skipping.")
                 continue
 
             # Load meta info of author
-            self.log(f"Processing meta of author {repoid}.")
-            authormeta, content = MDFileParser(meta)
+            self.log.out(f"Processing meta of author {repoid}.")
+            authormeta, content = parse_md_file(meta)
+            garbage.append(authormeta)
 
             # ### By manipulating the mechanism of contentgrant you violate personal copy rights.                 ###
             # ### Authors may enforce legal steps against you, if you use their content without their permission. ###
             # Check grant of contents
             grant = authormeta.get("contentgrant", NotImplemented)
             if grant is NotImplemented:
-                self.warn(f"Skipping author repo {repoid} because missing contentgrant header in meta.md.")
+                self.log.warn(f"Skipping author repo {repoid} because missing contentgrant header in meta.md.")
                 continue
 
-            if grant is None or grant == "":
-                self.warn(f"Skipping author repo {repoid} because not granted to this website.")
+            if grant is None:
+                self.log.warn(f"Skipping author repo {repoid} because not granted to this website.")
                 continue
 
-            if grant != "*" and self.pageconfig.PAGEID not in (page.strip() for page in grant.split(",")):
-                self.warn(f"This page is not allowed to use content from git repository configured as {repoid}. Content skipped.")
+            if isinstance(grant, str):
+                authormeta["contentgrant"] = grant = [page.strip() for page in grant.split(",")]
+
+            if "*" not in grant and self.pageconfig.PAGEID not in grant:
+                self.log.warn(f"This page is not allowed to use content from git repository configured as {repoid}. "
+                              "Content of author skipped.")
                 continue
 
             # ### End of contentgrant ###
 
             # Save author's self descriptions
             langcontents = authormeta["content"] = dict()  # dict of lang
+            garbage.append(langcontents)
 
             # Check content of meta.md
             if len(content.strip()):
                 mainlang = authormeta.get("lang", self.pageconfig.CONTENT_SETTINGS.get("LANG_DEFAULT", NotImplemented))
                 if mainlang is NotImplemented:
-                    self.warn(f"Skipping repo {repoid} because could not determine language neither from header nor from LANG_DEFAULT.")
+                    self.log.warn(f"Skipping repo {repoid} because could not determine language neither from header "
+                                  "nor from LANG_DEFAULT.")
+                    continue
+
+                if not is_valid_single_lang.match(mainlang.strip()):
+                    self.log.warn(f"Skipping repo {repoid} because not a valid single language code aquired neither "
+                                  f"from header nor from LANG_DEFAULT: '{mainlang}'")
                     continue
 
                 langcontents[mainlang] = content.strip()
@@ -111,22 +114,31 @@ class PageContent:
             for path, file in files.items():  # type: str, Path
                 m = is_author_lang_content.search(path)
                 if m:
-                    self.log(f"Parsing author description in {path}")
+                    self.log.out(f"Parsing author description in {path}")
                     lang = m.group(1)
                     langcontents[lang] = file.read_text(encoding="UTF-8")
 
             # Read author repo's contents
-            authormeta["contents"] = self.read_contents(authorrepo)
+            contents, contentgarbage = self.read_contents(authorrepo)
+            garbage.append(contents)
+            garbage.extend(contentgarbage)
+
+            # Link author's contents
+            authormeta["contents"] = contents
 
             # Append repo to author meta collection
             ret_repos[repoid] = authormeta
 
-        return ret_repos
+        return ret_repos, garbage
 
-    def read_contents(self, authorrepo: RepoDir) -> dict:  # of contentid
+    def read_contents(self, authorrepo: RepoDir) -> Tuple[dict, list]:  # of contentid
         "Read all contents of an author repo"
 
         ret_contents = dict()  # path -> dict of lang -> content
+
+        # Collect all lists and dicts containing references to other objects
+        garbage = list()
+
         files = authorrepo.files
 
         for fpath, file in files.items():  # type: str, Path
@@ -140,8 +152,9 @@ class PageContent:
 
                 if m:
                     # File path matched one of both patterns
-                    self.log(f"Reading content of: {fpath}")
-                    headers, content = MDFileParser(file)
+                    self.log.out(f"Reading content of: {fpath}")
+                    headers, content = parse_md_file(file)
+                    garbage.append(headers)
                     contentid = m.group(1)
                     lang = m.group(2)
 
@@ -152,17 +165,18 @@ class PageContent:
                     else:
                         # First content
                         contentlangs = ret_contents[contentid] = dict()
+                        garbage.append(contentlangs)
 
                     if lang in contentlangs:
-                        self.warn(f"Skipping duplicate content file: {fpath} -> contentid={contentid}, lang={lang}")
+                        self.log.warn(f"Skipping duplicate content file: {fpath} -> contentid={contentid}, lang={lang}")
                         continue
 
                     if "content" in headers and len(content.strip()):
-                        self.warn(f"Skipping content file: {fpath} having both content in body and in content header.")
+                        self.log.warn(f"Skipping content file: {fpath} having both content in body and in content header.")
                         continue
 
                     if "content" not in headers and len(content.strip()) == 0:
-                        self.warn(f"Skipping content file: {fpath}. Missing content.")
+                        self.log.warn(f"Skipping content file: {fpath}. Missing content.")
                         continue
 
                     if "content" not in headers:
@@ -178,18 +192,31 @@ class PageContent:
                     contentlangs[lang] = headers
 
                 else:
-                    self.log(f"Skipping content of {fpath} because md file not matching requirements.")
+                    self.log.warn(f"Skipping content of {fpath} because md file not matching requirements.")
 
-        return ret_contents
+        return ret_contents, garbage
 
-    def mergecontents(self):
+    def merge_and_link_contents(self, authorcontents: dict) -> Tuple[dict, list]:
+        # Collect all lists and dicts containing references to other objects
+        garbage = list()
+
+        ret_merged = {
+            "authors": dict(),
+            "contents": dict(),
+            "tags": dict()
+        }
+
+        for item in ret_merged.values():
+            garbage.append(item)
+
+
         # Checks
-        if "nickname" not in authormeta:
-            self.warn(f"Missing nickname in {repoid}. Content of author skipped.")
-            continue
+        #if "nickname" not in authormeta:
+        #    self.warn(f"Missing nickname in {repoid}. Content of author skipped.")
+        #    continue
 
-        nickname = authormeta["nickname"]
-
+        #nickname = authormeta["nickname"]
+        return ret_merged, garbage
 
     def generate(self, repos: dict, onlywhenchanged: bool = False):
         """
@@ -205,12 +232,23 @@ class PageContent:
             if not self.need_regenerate([repo for repo in [repoclass for repoclass in repos.values()]]):
                 return
 
-        #
-        authorcontentstruct = self.read_authors_with_contents(repos["AUTHORS"])
+        # Read all authors and their contents.
+        authorcontentstruct, garbage = self.read_authors_with_contents(repos["AUTHORS"])
+
+        import pprint
+        pprint.pprint(authorcontentstruct)
+
+        # Merge all authors, link contents, collect tags
+        allcontents, linkedgarbage = self.merge_and_link_contents(authorcontentstruct)
+        garbage.extend(linkedgarbage)
 
 
 
 
+        # Now safe destroy garbage contents
+        for element in garbage:
+            element.clear()
+        garbage.clear()
 
         # Store each repo date as last processed date.
         for typename, repodict in repos.items():

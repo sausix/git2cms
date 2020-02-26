@@ -3,75 +3,79 @@ import sys
 from pathlib import Path
 from pagecontent import PageContent
 from repo import RepoDir
+from streamlogging import Logger
 
 
 class Page:
-    def __init__(self, config, pageconfig, stdout=None):
+    def __init__(self, config, pageconfig, logger: Logger=None):
         self.config = config
         self.pageconfig = pageconfig
         self._create_absolute_pagepaths()
         self._check_pagepaths()
-        self.stdout = stdout
 
-        if self.stdout is None:
-            self.stdout = self.pageconfig.WRITE_DESTINATIONS.get("LOGFILE", NotImplemented)
+        self.log = logger
+        if self.log is None:
+            # Determine log destinations
+            logfile = self.pageconfig.LOGFILE
 
-            if self.stdout is NotImplemented:
+            if isinstance(logfile, Path):
+                stream = open(str(logfile), "w")
+                self.log = Logger(stream, stream, stream)
+            else:
                 # Use stdout from process if no logfile configured.
-                self.stdout = sys.stdout
-            elif type(self.stdout) is str:
-                # Logfile configured
-                if len(str(self.stdout)):
-                    # Use logfile if not empty
-                    self.stdout = open(str(self.stdout), "w")
+                self.log = Logger(sys.stdout, sys.stdout, sys.stderr)
 
         self.contentgen = PageContent(
             self.config,
             self.pageconfig,
-            self.stdout
+            self.log.sublogger("CONTENT")
         )
-
-    def log(self, text: str):
-        "Output text to stdout"
-        if self.stdout is None:
-            return
-
-        self.stdout.write(text)
-        self.stdout.write("\n")
 
     def fail(self, text: str):
         "Raise an Exception and quit application"
+        self.log.err(text)
         raise Exception(text)
 
     def _create_absolute_pagepaths(self):
-        if len(self.pageconfig.ROOT) == 0:
-            self.pageconfig.ROOT = self.config.ROOT
-        elif self.pageconfig.ROOT[:1] != "/":
-            # Relative path
-            self.pageconfig.ROOT = f"{self.config.ROOT}/{self.pageconfig.ROOT}"
+        # pageconfig.ROOT
+        if isinstance(self.pageconfig.ROOT, Path):
+            # Path set
+            if not self.pageconfig.ROOT.is_absolute():
+                self.pageconfig.ROOT = Path(self.config.ROOT) / Path(self.pageconfig.ROOT)
+        else:
+            # Not set or unknown type
+            self.pageconfig.ROOT = Path(self.config.ROOT)
 
+        root = self.pageconfig.ROOT
+
+        # pageconfig.CLONE_DESTINATIONS
         self.pageconfig.CLONE_DESTINATIONS = {
-            key: path if path[:1] == "/"
-            else self.pageconfig.ROOT + "/" + path
-            for key, path in self.pageconfig.CLONE_DESTINATIONS.items()
+            key: path if path.is_absolute() else root / path
+            for key, path in self.pageconfig.CLONE_DESTINATIONS.items()  # type: str, Path
         }
 
-        self.pageconfig.WRITE_DESTINATIONS = {
-            key: path if path[:1] == "/" or len(path) == 0
-            else self.pageconfig.ROOT + "/" + path
-            for key, path in self.pageconfig.WRITE_DESTINATIONS.items()
-        }
+        # pageconfig.WEBROOT
+        if not self.pageconfig.WEBROOT.is_absolute():
+            self.pageconfig.WEBROOT = root / self.pageconfig.WEBROOT
+
+        # pageconfig.LOGFILE
+        if not self.pageconfig.LOGFILE.is_absolute():
+            self.pageconfig.LOGFILE = root / self.pageconfig.LOGFILE
 
     def _check_pagepaths(self):
+        # Create CLONE_DESTINATIONS folders
         for path in self.pageconfig.CLONE_DESTINATIONS.values():
             p = Path(path)
             p.mkdir(parents=True, exist_ok=True)
 
-        if "LOGFILE" in self.pageconfig.WRITE_DESTINATIONS:
-            if len(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"]):
-                p = Path(self.pageconfig.WRITE_DESTINATIONS["LOGFILE"])
-                folder = p.parent
-                folder.mkdir(parents=True, exist_ok=True)
+        # Create pageconfig.WEBROOT folder
+        if isinstance(self.pageconfig.WEBROOT, Path):
+            self.pageconfig.WEBROOT.mkdir(parents=True, exist_ok=True)
+
+        # Create logfile folders
+        if isinstance(self.pageconfig.LOGFILE, Path):
+            parent = self.pageconfig.LOGFILE.parent
+            parent.mkdir(parents=True, exist_ok=True)
 
     def clone_all(self):
         self.clone_authors()
@@ -90,42 +94,39 @@ class Page:
     def open_repos_by_key(self, key: str) -> dict:
         ret = dict()
 
-        clonedir = self.pageconfig.CLONE_DESTINATIONS[key]
-        rootfolder = Path(clonedir)
+        clonefolder = self.pageconfig.CLONE_DESTINATIONS[key]
 
         for gitid in self.pageconfig.GIT_SOURCES[key].keys():
-            folder = rootfolder / Path(gitid)
+            folder = clonefolder / Path(gitid)
             if folder.is_dir():
                 ret[gitid] = RepoDir(folder, gitid)
+            else:
+                self.log.warn(f"Repo folder not valid. Must be a directory. Skipped: {folder}")
 
         return ret
 
-    def clone(self, repoid: str, folder: str, url: str):
-        f = Path(folder)
-        if f.exists():
+    def clone(self, repoid: str, folder: Path, url: str):
+        if folder.exists():
             # git --git-dir=sausix_main/.git pull "https://github.com/sausix/hackersweblog.net-author.git"
-            self.log(f"Pulling {repoid} from {url}")
-            cmds = ("git", "-C", folder, "pull", url),
+            self.log.out(f"Pulling {repoid} from {url} into {folder}")
+            cmds = ("git", "-C", str(folder), "pull", url),
         else:
             # git clone "https://github.com/sausix/hackersweblog.net-author.git" sausix_main
-            self.log(f"Cloning {repoid} from {url}")
-            cmds = ("git", "clone", url, folder),
+            self.log.out(f"Cloning {repoid} from {url} into {folder}")
+            cmds = ("git", "clone", url, str(folder)),
 
-        with open(f"{folder}.log", "w") as log:
-            with open(f"{folder}.err", "w") as err:
-                try:
-                    for cmd in cmds:
-                        res = subprocess.run(cmd, stdout=log, stderr=err)
-                        if res.returncode:
-                            raise Exception(f"git command returned {res.returncode}")
+        try:
+            for cmd in cmds:
+                res = subprocess.run(cmd, stdout=self.log._out, stderr=self.log._out)  # TODO: iowrapper
+                if res.returncode:
+                    self.log.err(f"git command returned {res.returncode}")
 
-                except Exception as e:
-                    err.write(f"Error while running git on {repoid}: \n")
-                    err.write(" ".join(e.args))
-                    err.write("\n")
+        except Exception as e:
+            self.log.err(f"Error while running git on {repoid}:")
+            self.log.err(" ".join(e.args))
 
     def clone_by_key(self, key: str, gitid: str, url: str):
-        directory = f"{self.pageconfig.CLONE_DESTINATIONS[key]}/{gitid}"
+        directory = self.pageconfig.CLONE_DESTINATIONS[key] / Path(gitid)
         self.clone(gitid, directory, url)
 
     def generate_content(self, onlywhenchanged: bool = True):

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+from pathlib import Path
 
 class HackersweblogConfig:
     """
@@ -12,13 +12,14 @@ class HackersweblogConfig:
     # For absolute URL generatings
     BASEADDRESS = "https://hackersweblog.net"
 
-    # Root directory below Config.ROOT or absolute for project's working files
-    ROOT = f"{PAGEID}"
+    # Root directory below Config.ROOT or absolute
+    # Affect all project's working directories below if they're absolute
+    ROOT = Path(f"{PAGEID}")
 
-    # Where to clone everything to. Relative to Config.ROOT or absolute.
+    # Where to clone everything to. Relative to ROOT or absolute.
     CLONE_DESTINATIONS = {
-        "TEMPLATES": "git/templates",
-        "AUTHORS": "git/authors",
+        "TEMPLATES": Path("git/templates"),
+        "AUTHORS": Path("git/authors"),
     }
 
     GIT_SOURCES = {
@@ -41,8 +42,11 @@ class HackersweblogConfig:
 
     # Where to write generated content to.
     #  Script-User need either write access to this directory or http server user need read access there.
-    # WEBROOT = "/srv/http/hackersweblog.net/beta"  # Absolute path!
-    WEBROOT = "content"
+    # WEBROOT = Path("/srv/http/hackersweblog.net/beta")
+    WEBROOT = Path("content")
+
+    # If no other output defined (cron task), use this one.
+    LOGFILE = Path("generate.log")
 
     CONTENT_SETTINGS = {
         # Preferred language if not specified. Main language of page.

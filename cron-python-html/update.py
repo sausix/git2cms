@@ -1,31 +1,23 @@
 #!/usr/bin/env python3
-
 import sys
 from config.config import Config
 from page import Page
+from streamlogging import Logger
 
 
 class Updater:
     def __init__(self, config: Config, stdout=sys.stdout, stderr=sys.stderr):
         self.config = config
-        self.stdout = stdout
-        self.stderr = stderr
+        self.log = Logger(stdout, stdout, stderr)
         self.noclone = False
         self.noclonetemplates = False
         self.nogenerate = False
         self.generate_on_changes = False
         self.fromcron = False
 
-    def log(self, text: str):
-        "Output text to stdout"
-        if self.stdout is None:
-            return
-
-        self.stdout.write(text)
-        self.stdout.write("\n")
-
     def fail(self, text: str):
         "Raise an Exception and quit application"
+        self.log.err(text)
         raise Exception(text)
 
     def parse_pages(self, args: list) -> set:
@@ -55,7 +47,7 @@ class Updater:
         return pages
 
     def help(self):
-        self.stdout.write("""Help of updater.py:
+        self.log.out("""Help of updater.py:
         --cron
             Tell running by cron. Content generation only on demand.
 
@@ -97,23 +89,24 @@ class Updater:
         self.generate_on_changes = self.fromcron
 
         if len(pages) == 0:
-            self.log("No pages configured/selected.")
+            self.log.warn("No pages configured/selected.")
 
         for page in pages:
             self.process_page(page)
 
-        return 0
+        return 0  # The secret code of success
 
     def process_page(self, pageconfig):
-        self.log(f"Processing page '{pageconfig.PAGEID}'...")
-        p = Page(self.config, pageconfig, stdout=None if self.fromcron else self.stdout)
+        self.log.out(f"Processing page '{pageconfig.PAGEID}'...")
+        p = Page(self.config, pageconfig, logger=None if self.fromcron else self.log.sublogger(pageconfig.PAGEID))
+
         if not self.noclone:
             p.clone_authors()
             if not self.noclonetemplates:
                 p.clone_templates()
         if not self.nogenerate:
             p.generate_content(self.generate_on_changes)
-        self.log(f"Done processing of '{pageconfig.PAGEID}'.")
+        self.log.out(f"Done processing of '{pageconfig.PAGEID}'.")
 
 
 if __name__ == "__main__":

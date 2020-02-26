@@ -3,7 +3,7 @@ from typing import Tuple
 from yaml import SafeLoader
 
 
-def MDFileParser(path: Path) -> Tuple[dict, str]:
+def parse_md_file(path: Path) -> Tuple[dict, str]:
     loader = SafeLoader(path.read_bytes())
 
     try:
@@ -23,9 +23,6 @@ def MDFileParser(path: Path) -> Tuple[dict, str]:
         else:
             # No headers, only content
             return {}, path.read_text(encoding="UTF-8")
-
-    except Exception as e:
-        pass
 
     finally:
         loader.dispose()
