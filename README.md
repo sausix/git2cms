@@ -18,7 +18,7 @@ Reference theme: https://github.com/DeatPlayer/hackersweblog.net-page-template (
 * Languages
 * Multiple authors
 * Templates
-* Simple static html pages (No PHP, yaaay!)
+* Simple static html pages (Look mom, no PHP!)
 
 ## Implementations
 
@@ -28,3 +28,4 @@ Creates static html files on demand or by cron.
 Requirements:
 * markdown, PyPI: `markdown`
 * yaml, PyPI: `PyYAML`
+* git, PyPI: `GitPython`

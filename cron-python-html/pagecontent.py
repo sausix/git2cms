@@ -1,28 +1,14 @@
-from typing import Union, Tuple
-
+from typing import Tuple
+from pathlib import Path
+import re
 import markdown
+import datetime
+from config.config import Config
 from repo import RepoDir
 from fileparser import parse_md_file
-from pathlib import Path
-from config.config import Config
 from streamlogging import Logger
-import re
 
-"""
----
-title: Generelle Infos
-date: 2020-02-15
-publish: Hidden
-publish-after: 2020-02-15 12:00
-description: Diese Seite beinhaltet ein paar Markdown-Elemente
-tags: demo, markdown
-source: http://where-i-stole-my-content.com/article.html
-linkto: some-category/other-content-pointed-to
-linkwith: some-category/other-content-linked-vice-versa
----
-"""
 AUTHORMETA_FILE = "author/meta.md"
-
 is_author_lang_content = re.compile(r"^author/([a-z]{2})\.md$")
 is_content_id_lang_md = re.compile(r"^content/(.*)\.([a-z]{2})\.md$")
 is_directory_lang_md = re.compile(r"^content/?(.*)/([a-z]{2})\.md$")
@@ -88,7 +74,6 @@ class PageContent:
                 self.log.warn(f"This page is not allowed to use content from git repository configured as {repoid}. "
                               "Content of author skipped.")
                 continue
-
             # ### End of contentgrant ###
 
             # Save author's self descriptions
@@ -196,18 +181,38 @@ class PageContent:
 
         return ret_contents, garbage
 
-    def merge_and_link_contents(self, authorcontents: dict) -> Tuple[dict, list]:
+    def create_time_aliases(self, time: datetime) -> dict:
+        dtf = self.config.DATETIME_FORMATS.copy()
+        dtf.update(self.pageconfig.DATETIME_FORMATS)
+        return {code: time.strftime(dtstr) for code, dtstr in dtf.items()}
+
+    def create_global_page_struct(self, authorcontents: dict) -> Tuple[dict, list]:
         # Collect all lists and dicts containing references to other objects
         garbage = list()
 
-        ret_merged = {
-            "authors": dict(),
-            "contents": dict(),
-            "tags": dict()
-        }
+        # Global variables
+        if "GLOBAL_STRINGS" in self.pageconfig.CONTENT_SETTINGS:
+            ret_merged = self.pageconfig.CONTENT_SETTINGS["GLOBAL_STRINGS"].copy()
+        else:
+            ret_merged = dict()
+
+        authors = dict()  # {nickname: author}
+        contents = dict()  # {pageid: {lang: [contents]} }
+        tags = dict()  # {tagname: {lang: [contents]} }
+        langs = dict()  # {lang: [contents] }
+
+        ret_merged["authors"] = authors
+        ret_merged["contents"] = contents
+        ret_merged["tags"] = tags
+        ret_merged["langs"] = langs
+        ret_merged["generationtime"] = self.create_time_aliases(datetime.datetime.now())
 
         for item in ret_merged.values():
             garbage.append(item)
+
+        # Iterate through all contents
+        for repoid, author_meta_dict in authorcontents.items():
+            pass
 
 
         # Checks
@@ -235,15 +240,9 @@ class PageContent:
         # Read all authors and their contents.
         authorcontentstruct, garbage = self.read_authors_with_contents(repos["AUTHORS"])
 
-        import pprint
-        pprint.pprint(authorcontentstruct)
-
         # Merge all authors, link contents, collect tags
-        allcontents, linkedgarbage = self.merge_and_link_contents(authorcontentstruct)
+        allcontents, linkedgarbage = self.create_global_page_struct(authorcontentstruct)
         garbage.extend(linkedgarbage)
-
-
-
 
         # Now safe destroy garbage contents
         for element in garbage:

@@ -9,7 +9,7 @@ timeformat = '%Y-%m-%d %H:%M:%S'
 class RepoDir:
     def __init__(self, path: Path, repoid: str):
         self.path = path
-        self.repo = None
+        self.repo: Union[Repo, None] = None
         self.repoid = repoid
         self.statusfile = Path(str(path) + ".status")
         self._files: Union[dict, None] = None
@@ -68,4 +68,14 @@ class RepoDir:
 
     @property
     def origin(self) -> str:
-        return ""  # TODO origin
+        if "origin" not in self.repo.remotes:
+            return f"<local repository '{self.path}'>"
+
+        origin = self.repo.remote("origin")
+
+        try:
+            url = next(origin.urls)
+        except StopIteration:
+            url = f"<local repository '{self.path}' without urls>"
+
+        return url

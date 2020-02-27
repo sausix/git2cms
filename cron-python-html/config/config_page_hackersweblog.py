@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
+
 class HackersweblogConfig:
     """
     Config for webpage content creation of a specific page
@@ -15,6 +16,13 @@ class HackersweblogConfig:
     # Root directory below Config.ROOT or absolute
     # Affect all project's working directories below if they're absolute
     ROOT = Path(f"{PAGEID}")
+
+    # Date and time formats for each propertyname used in datetimes.
+    # Languages may be diverge. Formats without language code refer to ISO.
+    # This list overwrites and/or extends Config.DATETIME_FORMATS.
+    # https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
+    DATETIME_FORMATS = {
+    }
 
     # Where to clone everything to. Relative to ROOT or absolute.
     CLONE_DESTINATIONS = {
@@ -50,16 +58,11 @@ class HackersweblogConfig:
 
     CONTENT_SETTINGS = {
         # Preferred language if not specified. Main language of page.
+        # Content in this language will be displayed implicitly.
         "LANG_DEFAULT": "en",
 
         # If no template defined:
         "TEMPLATE_DEFAULT": f"{PAGEID}",
-
-        # If defined template unknown
-        "TEMPLATE_ON_MISSING": f"{PAGEID}",
-
-        # Index file name of root documents
-        "INDEX_FILE": "index.html",
 
         # Create INDEX_FILE in each named subfolder
         "INDEX_ONLY": False,
@@ -73,6 +76,13 @@ class HackersweblogConfig:
         #   file.en.md to file/en/index.html
         "CONTENT_FILE_EXTENSION": ".html",
 
-        # If a content has no image tag set and non of "tag".jpg in content.tags can be found, use this one:
-        "CONTENT_IMAGE": "content.jpg"
+        # Index file name of root documents
+        "INDEX_FILE": "index.html",
+
+        # If a content has no image tag set and none of "tag".jpg in content.tags can be found, use this one:
+        "CONTENT_IMAGE": "content.jpg",
+
+        "GLOBAL_STRINGS": {
+            "copyright": "© Copyright 2020"
+        }
     }
