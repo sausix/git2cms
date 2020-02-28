@@ -82,6 +82,10 @@ class HackersweblogConfig:
         # If a content has no image tag set and none of "tag".jpg in content.tags can be found, use this one:
         "CONTENT_IMAGE": "content.jpg",
 
+        # If a content file has no tag specified which is not required, use this tag set:
+        # If empty set, None or set of an empty string is chosen, there will be no visible tag.
+        "TAG_DEFAULT": {"notag"},
+
         "GLOBAL_STRINGS": {
             "copyright": "© Copyright 2020"
         }

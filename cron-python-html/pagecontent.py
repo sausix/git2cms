@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict
 from pathlib import Path
 import re
 import markdown
@@ -9,11 +9,27 @@ from fileparser import parse_md_file
 from streamlogging import Logger
 
 AUTHORMETA_FILE = "author/meta.md"
+
 is_author_lang_content = re.compile(r"^author/([a-z]{2})\.md$")
 is_content_id_lang_md = re.compile(r"^content/(.*)\.([a-z]{2})\.md$")
 is_directory_lang_md = re.compile(r"^content/?(.*)/([a-z]{2})\.md$")
 is_md = re.compile(r"^content/.*\.md$")
 is_valid_single_lang = re.compile(r"^[a-z]{2}$")
+
+required_author_meta_keys = {"nickname", "contentgrant"}
+reserved_author_meta_keys = {"contents", "langs", "gitsources"}
+
+required_content_keys = {"title", "date", "description"}
+reserved_content_keys = {"lang", "langs", "gitsource", "mdsource", "author", "url", "template", "model", "id"}
+
+
+def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
+    if key in dictcollection:
+        return dictcollection[key]
+
+    d = dictcollection[key] = dict()
+    garbage.append(d)
+    return d
 
 
 class PageContent:
@@ -34,11 +50,63 @@ class PageContent:
 
         return found
 
+    def check_authormeta(self, authormeta: dict) -> bool:
+        """
+        Check author meta for reserved keys, warn and remove them.
+        Warns about missing required keys and then returns False
+        Returns True, if all required keys were found.
+        """
+        keys = authormeta.keys()
+        reserved = reserved_author_meta_keys.intersection(keys)
+        missing = required_author_meta_keys.difference(keys)
+
+        for metakey in reserved:
+            self.log.warn(f"Author meta contains a reserved meta key: {metakey}. It will be removed or overwritten.")
+            del(authormeta[metakey])
+
+        for metakey in missing:
+            self.log.warn(f"Author meta missing required meta key: {metakey}.")
+
+        return len(missing) == 0
+
+    def check_contentmeta(self, contentmeta: dict) -> bool:
+        """
+        Check content for reserved keys, warn and remove them.
+        Warns about missing required keys and then returns False
+        Returns True, if all required keys were found.
+        """
+        keys = contentmeta.keys()
+        reserved = reserved_content_keys.intersection(keys)
+        missing = required_content_keys.difference(keys)
+
+        for metakey in reserved:
+            self.log.warn(f"Content meta contains a reserved meta key: {metakey}. It will be removed or overwritten.")
+            del(contentmeta[metakey])
+
+        return len(missing) == 0
+
+    def _addmerge(self, thingid: str, contentl: dict, collectionl: dict, namespace: str):
+        if thingid in collectionl:
+            # Thingid already present in some language
+            thingcol: dict = collectionl[thingid]
+        else:
+            # Create thing initially in this language
+            thingcol = collectionl[thingid] = dict()
+
+        for lang, content in contentl.items():  # type: str, dict
+            if lang in thingcol:
+                self.log.warn(f"Duplicate content collision for language: '{lang}', id: '{thingid}',"
+                              f" namespace: {namespace}. Content will be skipped.")
+                continue
+
+            # Add language with content
+            thingcol[lang] = content
+
     def read_authors_with_contents(self, authorrepos: dict) -> Tuple[dict, list]:
         """Read all authors
         Better deep destroy the result after elements are not used anymore anywhere.
         """
-        ret_repos = dict()  # repoid -> author_meta_dict
+        ret_repos = dict()  # repoid -> author_meta_dict, contents, gitsource
 
         # Collect all lists and dicts containing references to other objects
         garbage = list()
@@ -53,14 +121,13 @@ class PageContent:
             # Load meta info of author
             self.log.out(f"Processing meta of author {repoid}.")
             authormeta, content = parse_md_file(meta)
-            garbage.append(authormeta)
 
             # ### By manipulating the mechanism of contentgrant you violate personal copy rights.                 ###
             # ### Authors may enforce legal steps against you, if you use their content without their permission. ###
             # Check grant of contents
             grant = authormeta.get("contentgrant", NotImplemented)
             if grant is NotImplemented:
-                self.log.warn(f"Skipping author repo {repoid} because missing contentgrant header in meta.md.")
+                self.log.warn(f"Skipping author repo {repoid} because missing contentgrant header in {AUTHORMETA_FILE}.")
                 continue
 
             if grant is None:
@@ -76,9 +143,14 @@ class PageContent:
                 continue
             # ### End of contentgrant ###
 
-            # Save author's self descriptions
-            langcontents = authormeta["content"] = dict()  # dict of lang
-            garbage.append(langcontents)
+            # We're allowed to use author's contents!
+
+            # Sanity checks
+            if not self.check_authormeta(authormeta):
+                self.log.warn(f"Skipping repo {repoid} because some required header missing in {AUTHORMETA_FILE}.")
+
+            # Collect author's self descriptions
+            _getcreate_subdict(authormeta, "content", garbage)  # dict of lang
 
             # Check content of meta.md
             if len(content.strip()):
@@ -93,7 +165,8 @@ class PageContent:
                                   f"from header nor from LANG_DEFAULT: '{mainlang}'")
                     continue
 
-                langcontents[mainlang] = content.strip()
+                # Merge check main description of author
+                self._addmerge("content", {mainlang: content.strip()}, authormeta, f"repo[{repoid}]/{AUTHORMETA_FILE}:content")
 
             # Check additional author descriptions
             for path, file in files.items():  # type: str, Path
@@ -101,25 +174,75 @@ class PageContent:
                 if m:
                     self.log.out(f"Parsing author description in {path}")
                     lang = m.group(1)
-                    langcontents[lang] = file.read_text(encoding="UTF-8")
+                    self._addmerge("content",
+                                   {lang: file.read_text(encoding="UTF-8")},
+                                   authormeta,
+                                   f"repo[{repoid}]/{path} (lang={lang})"
+                                   )
 
             # Read author repo's contents
-            contents, contentgarbage = self.read_contents(authorrepo)
-            garbage.append(contents)
+            contentsl, contentgarbage = self.read_contents(authorrepo)
             garbage.extend(contentgarbage)
+            garbage.append(authormeta)
 
-            # Link author's contents
-            authormeta["contents"] = contents
-
-            # Append repo to author meta collection
-            ret_repos[repoid] = authormeta
+            # Append meta and content to repo collection
+            ret_repos[repoid] = authormeta, contentsl, authorrepo.origin
 
         return ret_repos, garbage
+
+    def replace_headers_basic_inplace(self, headers: dict) -> bool:
+        # ### Publish ###
+        if "publish" not in headers:
+            headers["publish"] = True  # Default
+
+        publish = headers["publish"]
+
+        if type(publish) is bool:
+            if not publish:
+                return False
+
+        if type(publish) in (datetime.datetime, datetime.date):
+            if datetime.datetime.now() <= publish:
+                self.log.out(f"Publish date not yet reached: ({publish})")
+                return False
+
+        if type(publish) is str:
+            if publish.strip().lower() == "hidden":
+                headers["publish"] = NotImplemented
+            else:
+                self.log.warn(f"Unrecognized value for meta key 'publish': '{publish}'")
+                return False
+
+        # ### Tags ###
+        tags = headers.get("tags", self.pageconfig.CONTENT_SETTINGS.get("TAG_DEFAULT", {""}))
+
+        if tags is None:
+            tags = {""}
+        elif type(tags) is str:
+            tags = tags.strip()
+            if len(tags) == 0:
+                tags = {""}
+            else:
+                tags = {tag.strip() for tag in tags.split(",") if len(tag.strip())}
+                if len(tags) == 0:
+                    tags = {""}
+        elif type(tags) in (dict, set):
+            if len(tags) == 0:
+                tags = {""}
+            else:
+                tags = set(tags)
+        else:
+            tags = str(tags)
+            self.log.warn(f"Unrecognized value for meta key 'tags': '{tags}'")
+            return False
+
+        headers["tags"] = tags
+        return True
 
     def read_contents(self, authorrepo: RepoDir) -> Tuple[dict, list]:  # of contentid
         "Read all contents of an author repo"
 
-        ret_contents = dict()  # path -> dict of lang -> content
+        ret_contentsl = dict()  # path -> dict of lang -> content
 
         # Collect all lists and dicts containing references to other objects
         garbage = list()
@@ -128,65 +251,65 @@ class PageContent:
 
         for fpath, file in files.items():  # type: str, Path
             # Try match content/*.md files
-            if is_md.match(fpath):
-                # Try match content/*.lang.md files
-                m = is_content_id_lang_md.search(fpath)
-                if not m:
-                    # Try match content/*/lang.md files
-                    m = is_directory_lang_md.search(fpath)
+            if not is_md.match(fpath):
+                continue
 
-                if m:
-                    # File path matched one of both patterns
-                    self.log.out(f"Reading content of: {fpath}")
-                    headers, content = parse_md_file(file)
-                    garbage.append(headers)
-                    contentid = m.group(1)
-                    lang = m.group(2)
+            # Try match content/*.lang.md files
+            m = is_content_id_lang_md.search(fpath)
+            if not m:
+                # Try match content/*/lang.md files
+                m = is_directory_lang_md.search(fpath)
 
-                    # contents[path] -> dict[lang] -> content
-                    if contentid in ret_contents:
-                        # There's already at least one content file in an other language
-                        contentlangs = ret_contents[contentid]
-                    else:
-                        # First content
-                        contentlangs = ret_contents[contentid] = dict()
-                        garbage.append(contentlangs)
+            if not m:
+                self.log.warn(f"Skipping content of {fpath} because file does not match naming requirements.")
+                continue
 
-                    if lang in contentlangs:
-                        self.log.warn(f"Skipping duplicate content file: {fpath} -> contentid={contentid}, lang={lang}")
-                        continue
+            # File path matched one of both patterns
+            self.log.out(f"Reading content of: {fpath}")
+            headers, content = parse_md_file(file)
+            garbage.append(headers)
+            contentid = m.group(1)
+            lang = m.group(2)
 
-                    if "content" in headers and len(content.strip()):
-                        self.log.warn(f"Skipping content file: {fpath} having both content in body and in content header.")
-                        continue
+            # Sanity checks
+            self.check_contentmeta(headers)
 
-                    if "content" not in headers and len(content.strip()) == 0:
-                        self.log.warn(f"Skipping content file: {fpath}. Missing content.")
-                        continue
+            # Create repo related dynamic headers
+            headers["gitsource"] = authorrepo.origin
+            headers["mdsource"] = fpath
+            headers["lang"] = lang
+            headers["id"] = contentid
 
-                    if "content" not in headers:
-                        # Add body to content
-                        headers["content"] = content
+            # Early basic header analysis and translations
+            if not self.replace_headers_basic_inplace(headers):
+                self.log.out(f"Skipping content file: {fpath} because of any meta check.")
+                continue
 
-                    # Create dynamic headers
-                    headers["lang"] = lang
-                    headers["gitsource"] = authorrepo.origin
-                    headers["mdsource"] = fpath
+            # Check for exactly one content source in file
+            if "content" in headers:
+                if len(content.strip()):
+                    self.log.warn(f"Skipping content file: {fpath} having both content in body and in content header.")
+                    continue
+            else:
+                if len(content.strip()) == 0:
+                    self.log.warn(f"Skipping content file: {fpath}. Missing content.")
+                    continue
 
-                    # Assign content to contents[contentid][lang]
-                    contentlangs[lang] = headers
+                # Add content to headers.content
+                headers["content"] = content.strip()
 
-                else:
-                    self.log.warn(f"Skipping content of {fpath} because md file not matching requirements.")
+            # Merge into return subset
+            self._addmerge(contentid, {lang: headers}, ret_contentsl, f"read_contents file: '{fpath}' lang: {lang}")
 
-        return ret_contents, garbage
+        garbage.append(ret_contentsl)
+        return ret_contentsl, garbage
 
-    def create_time_aliases(self, time: datetime) -> dict:
+    def create_time_aliases(self, time: datetime) -> Dict[str, str]:
         dtf = self.config.DATETIME_FORMATS.copy()
         dtf.update(self.pageconfig.DATETIME_FORMATS)
         return {code: time.strftime(dtstr) for code, dtstr in dtf.items()}
 
-    def create_global_page_struct(self, authorcontents: dict) -> Tuple[dict, list]:
+    def create_global_page_struct(self, raw_repos: dict) -> Tuple[dict, list]:
         # Collect all lists and dicts containing references to other objects
         garbage = list()
 
@@ -196,32 +319,84 @@ class PageContent:
         else:
             ret_merged = dict()
 
-        authors = dict()  # {nickname: author}
-        contents = dict()  # {pageid: {lang: [contents]} }
-        tags = dict()  # {tagname: {lang: [contents]} }
-        langs = dict()  # {lang: [contents] }
+        # ### Collect these global variables:
+        # 1.
+        global_authors = _getcreate_subdict(ret_merged, "authors", garbage)  # {nickname: author}
 
-        ret_merged["authors"] = authors
-        ret_merged["contents"] = contents
-        ret_merged["tags"] = tags
-        ret_merged["langs"] = langs
+        # 1.a: author["contents"]
+
+        # 2.
+        global_contentsl = _getcreate_subdict(ret_merged, "contents", garbage)  # {contentid: {lang: [contents]} }
+
+        # 3.
+        global_tagsl = _getcreate_subdict(ret_merged, "tags", garbage)  # {tagname: {contentid: {lang: [contents]} } }
+
+        # 4.
+        # Structure not perfect but uniform
+        global_langsl = _getcreate_subdict(ret_merged, "langs", garbage)  # {lang: {contentid: {lang: [contents]} } }
+
+        # 5.
         ret_merged["generationtime"] = self.create_time_aliases(datetime.datetime.now())
 
-        for item in ret_merged.values():
-            garbage.append(item)
+        # Iterate through all repos
+        for repoid, raw_repo in raw_repos.items():  # type: str, dict
+            # Process author and contents of one repo
+            raw_author, raw_contentsl, raw_gitsource = raw_repo  # type: dict, dict, str
 
-        # Iterate through all contents
-        for repoid, author_meta_dict in authorcontents.items():
-            pass
+            # ### Nickname/author related ###
+            #
+            # Merge by nickname
+            author_nickname = raw_author["nickname"]  # (1.)
 
+            # Check already having author by nickname (1.)
+            if author_nickname in global_authors:
+                # Another repo of same author. No problem!
+                author: dict = global_authors[author_nickname]
+                gitsources: set = author["gitsources"]
+                # TODO: check for varied meta tags in raw_author
+            else:
+                # First author occurrence. Take raw meta.
+                author = global_authors[author_nickname] = raw_author
+                gitsources = author["gitsources"] = set()
 
-        # Checks
-        #if "nickname" not in authormeta:
-        #    self.warn(f"Missing nickname in {repoid}. Content of author skipped.")
-        #    continue
+            # Collect gitsource
+            gitsources.add(raw_gitsource)
 
-        #nickname = authormeta["nickname"]
+            # ### Content related ###
+            #
+            # Check contents list of author (1.a)
+            author_contentsl = _getcreate_subdict(author, "contents", garbage)
+
+            # Iterate raw repo contents of author and merge globally
+            for contentid, raw_contentl in raw_contentsl.items():  # type: str, dict
+                # Iterate unmerged repo content
+
+                # (1.a)
+                self._addmerge(contentid, raw_contentl, author_contentsl, f"author[{author_nickname}].contents")
+
+                # (2.)
+                self._addmerge(contentid, raw_contentl, global_contentsl, "contents")
+
+                # Different languages may have different or localized tags
+                for lang, raw_content in raw_contentl.items():  # type: str, dict
+                    contentl = {lang: raw_content}
+                    # (3.)
+                    tags: set = raw_content["tags"]
+                    for tag in tags:  # type: str
+                        tagl = _getcreate_subdict(global_tagsl, tag, garbage)
+                        self._addmerge(contentid, contentl, tagl, f"tags[{tag}]")
+
+                    # (4.)
+                    langl = _getcreate_subdict(global_langsl, lang, garbage)
+                    self._addmerge(contentid, contentl, langl, f"langs[{lang}]")
+
         return ret_merged, garbage
+
+    def write_global_page_struct(self, struct) -> Dict[str, Path]:
+        return {"": Path()}
+
+    def delete_files(self, files):
+        pass
 
     def generate(self, repos: dict, onlywhenchanged: bool = False):
         """
@@ -238,12 +413,22 @@ class PageContent:
                 return
 
         # Read all authors and their contents.
-        authorcontentstruct, garbage = self.read_authors_with_contents(repos["AUTHORS"])
+        raw_author_and_contents_struct, garbage = self.read_authors_with_contents(repos["AUTHORS"])
 
         # Merge all authors, link contents, collect tags
-        allcontents, linkedgarbage = self.create_global_page_struct(authorcontentstruct)
+        global_page_struct, linkedgarbage = self.create_global_page_struct(raw_author_and_contents_struct)
         garbage.extend(linkedgarbage)
 
+        # Update files on disk
+        written_files = self.write_global_page_struct(global_page_struct)
+
+        from pprint import pprint
+        pprint(global_page_struct, width=200, depth=4)
+
+        # Delete old files
+        self.delete_files(written_files)
+
+        # ### Finish ###
         # Now safe destroy garbage contents
         for element in garbage:
             element.clear()

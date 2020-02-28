@@ -26,3 +26,14 @@ Don't rush git provider with too much git requests. Hourly is a good start.
 #minute  hour  day_of_month  month  day_of_week  command
 12       *     *             *      *            /usr/bin/python3 /home/git2cms/dir/update.py --cron --allpages
 ```
+
+## dev status
+
+TODO:
+
+* Merging content repos *(in progress)*
+* Linking and indexing content
+* Translate markdown to html
+* Replacing vars in templates with Jitsi
+* Optimize, organize project structure and outsource common classes and functions
+* Create PyPI package
