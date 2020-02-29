@@ -2,17 +2,20 @@ from datetime import datetime
 from typing import Union
 from git import Repo
 from pathlib import Path
+from dirtools import DirFiles
 
 timeformat = '%Y-%m-%d %H:%M:%S'
 
 
 class RepoDir:
-    def __init__(self, path: Path, repoid: str):
+    def __init__(self, path: Path, repoid: str, maxdepth=10):
         self.path = path
         self.repo: Union[Repo, None] = None
         self.repoid = repoid
+        self.maxdepth = maxdepth
         self.statusfile = Path(str(path) + ".status")
         self._files: Union[dict, None] = None
+        self._dirloader = DirFiles(self.path)
         self.reload()
 
     def reload(self):
@@ -42,27 +45,10 @@ class RepoDir:
     def store_process_date(self):
         self.statusfile.write_text(self.get_commit_date().strftime(timeformat))
 
-    def loadfiles(self, directory: Path, recurse=True):
-        "Add files from directory to files list of this object."
-        # Files first
-        for element in directory.iterdir():
-            if element.is_file():
-                if element.name[:1] != ".":
-                    key = str(element.relative_to(self.path)).replace("\\", "/")
-                    self._files[key] = element
-
-        # Then subdirs if recurse
-        if recurse:
-            for element in directory.iterdir():
-                if element.is_dir():
-                    if element.name[:1] != ".":
-                        self.loadfiles(directory / element, recurse)
-
     @property
     def files(self) -> dict:
         if self._files is None:
-            self._files = dict()
-            self.loadfiles(self.path)
+            self._files = self._dirloader.to_dict(self.maxdepth)
 
         return self._files
 

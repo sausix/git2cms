@@ -1,11 +1,13 @@
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Union
 from pathlib import Path
 import re
 import markdown
 import datetime
 from config.config import Config
+from dirtools import DirFiles
 from repo import RepoDir
 from fileparser import parse_md_file
+from setofmutable import SetOfMutable
 from streamlogging import Logger
 
 AUTHORMETA_FILE = "author/meta.md"
@@ -20,7 +22,7 @@ required_author_meta_keys = {"nickname", "contentgrant"}
 reserved_author_meta_keys = {"contents", "langs", "gitsources"}
 
 required_content_keys = {"title", "date", "description"}
-reserved_content_keys = {"lang", "langs", "gitsource", "mdsource", "author", "url", "template", "model", "id"}
+reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url", "template", "model", "id", "links"}
 
 
 def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
@@ -36,7 +38,6 @@ class PageContent:
     def __init__(self, config: Config, pageconfig, logger: Logger = None):
         self.config = config
         self.pageconfig = pageconfig
-        self.writefolder = Path(self.pageconfig.WEBROOT)
         self.log = logger
 
     def need_regenerate(self, repolist: list) -> bool:
@@ -237,6 +238,20 @@ class PageContent:
             return False
 
         headers["tags"] = tags
+
+        # Linkto, linkwith, sources
+        def check_header_links(key: str):
+            # Replace string header in set of contentids
+            if key not in headers:
+                return
+
+            links_str = headers[key]
+            headers[key] = {link.strip() for link in links_str.split(",") if len(link.strip())}
+
+        check_header_links("linkto")
+        check_header_links("linkwith")
+        check_header_links("sources")
+
         return True
 
     def read_contents(self, authorrepo: RepoDir) -> Tuple[dict, list]:  # of contentid
@@ -279,6 +294,8 @@ class PageContent:
             headers["mdsource"] = fpath
             headers["lang"] = lang
             headers["id"] = contentid
+            headers["links"] = SetOfMutable()
+            garbage.append(headers["links"])
 
             # Early basic header analysis and translations
             if not self.replace_headers_basic_inplace(headers):
@@ -304,10 +321,10 @@ class PageContent:
         garbage.append(ret_contentsl)
         return ret_contentsl, garbage
 
-    def create_time_aliases(self, time: datetime) -> Dict[str, str]:
+    def apply_datetime_formats(self, dt: datetime) -> Dict[str, str]:
         dtf = self.config.DATETIME_FORMATS.copy()
         dtf.update(self.pageconfig.DATETIME_FORMATS)
-        return {code: time.strftime(dtstr) for code, dtstr in dtf.items()}
+        return {code: dt.strftime(dtstr) for code, dtstr in dtf.items()}
 
     def create_global_page_struct(self, raw_repos: dict) -> Tuple[dict, list]:
         # Collect all lists and dicts containing references to other objects
@@ -336,7 +353,7 @@ class PageContent:
         global_langsl = _getcreate_subdict(ret_merged, "langs", garbage)  # {lang: {contentid: {lang: [contents]} } }
 
         # 5.
-        ret_merged["generationtime"] = self.create_time_aliases(datetime.datetime.now())
+        ret_merged["generationtime"] = self.apply_datetime_formats(datetime.datetime.now())
 
         # Iterate through all repos
         for repoid, raw_repo in raw_repos.items():  # type: str, dict
@@ -353,7 +370,7 @@ class PageContent:
                 # Another repo of same author. No problem!
                 author: dict = global_authors[author_nickname]
                 gitsources: set = author["gitsources"]
-                # TODO: check for varied meta tags in raw_author
+                # TODO: check for varying meta tags in raw_author
             else:
                 # First author occurrence. Take raw meta.
                 author = global_authors[author_nickname] = raw_author
@@ -380,6 +397,7 @@ class PageContent:
                 # Different languages may have different or localized tags
                 for lang, raw_content in raw_contentl.items():  # type: str, dict
                     contentl = {lang: raw_content}
+
                     # (3.)
                     tags: set = raw_content["tags"]
                     for tag in tags:  # type: str
@@ -392,10 +410,90 @@ class PageContent:
 
         return ret_merged, garbage
 
-    def write_global_page_struct(self, struct) -> Dict[str, Path]:
+    def link_contents(self, namespace: dict) -> list:
+        """
+        Modify content headers:
+            linkto -> links
+            linkwith -> links
+            langs
+            otherlangs
+        """
+
+        # Collect all lists and dicts containing references to other objects
+        garbage = list()
+        contents: dict = namespace["contents"]
+
+        deflang = self.pageconfig.CONTENT_SETTINGS["LANG_DEFAULT"]
+
+        def get_linked_content(headerkey: str, c: dict) -> Union[dict, None]:
+            if headerkey not in c:
+                # Header not present
+                return None
+
+            cid = c["id"]
+            clang = c["lang"]
+
+            for link in c[headerkey]:  # type: str
+                if link == cid:
+                    self.log.warn(f"Selflinking: Header {headerkey} of content '{cid}' in language '{clang}' points to itself. Skipped.")
+                    continue
+
+                # Link valid?
+                if link not in contents:
+                    self.log.warn(f"Unknown contentid: Header {headerkey} of content '{cid}' in language {clang} points to unknown contentid: '{link}'. Skipped.")
+                    continue
+
+                # Get best language
+                destcontentl: dict = contents[link]
+                if clang in destcontentl:
+                    # Found same language
+                    return destcontentl[lang]
+
+                if deflang in destcontentl:
+                    # Fallback: Found content in deflang
+                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}' points to default language: '{deflang}'.")
+                    return destcontentl[deflang]
+
+                if len(destcontentl):
+                    # Get first language.
+                    firstlang, destcontent = next(iter(destcontentl.items()))
+                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}' points to first found language: '{firstlang}'.")
+                    return destcontent
+
+                self.log.warn(f"Invalid link: Header {headerkey} of content '{cid}' in language '{clang}' does not match any contents.")
+                return None
+
+        for contentid, contentl in contents.items():  # type: str, dict
+            for lang, content in contentl.items():  # type: str, dict
+                # Linkto
+                linkcontent = get_linked_content("linkto", content)
+                if linkcontent is not None:
+                    content["links"].add(linkcontent)
+
+                # Linkwith
+                linkcontent = get_linked_content("linkwith", content)
+                if linkcontent is not None:
+                    content["links"].add(linkcontent)
+                    linkcontent["links"].add(content)
+
+                # langs
+                content["langs"] = contentl
+
+                # otherlangs
+                otherlangs = content["otherlangs"] = {lang: c for lang, c in contentl.items() if c is not content}
+                if len(otherlangs):
+                    garbage.append(otherlangs)
+
+        return garbage
+
+    def write_global_page_struct(self, struct, destfolder: Path) -> Dict[str, Path]:
+        if not destfolder.is_dir():
+            self.log.err(f"Destination folder configured in pageconfig.WEBROOT as '{destfolder}' is missing. Create it with correct permissions first.")
+            raise FileNotFoundError("Folder WEBROOT not existing.")
+
         return {"": Path()}
 
-    def delete_files(self, files):
+    def delete_files(self, files_before: dict, files_new: dict):
         pass
 
     def generate(self, repos: dict, onlywhenchanged: bool = False):
@@ -407,32 +505,43 @@ class PageContent:
             Exit if no repos pulls have changed.
         :return:
         """
+        garbage = list()
 
-        if onlywhenchanged:
-            if not self.need_regenerate([repo for repo in [repoclass for repoclass in repos.values()]]):
-                return
+        try:
+            if onlywhenchanged:
+                if not self.need_regenerate([repo for repo in [repoclass for repoclass in repos.values()]]):
+                    return
 
-        # Read all authors and their contents.
-        raw_author_and_contents_struct, garbage = self.read_authors_with_contents(repos["AUTHORS"])
+            # Read all authors and their contents.
+            raw_author_and_contents_struct, authorcontentgarbage = self.read_authors_with_contents(repos["AUTHORS"])
+            garbage.extend(authorcontentgarbage)
 
-        # Merge all authors, link contents, collect tags
-        global_page_struct, linkedgarbage = self.create_global_page_struct(raw_author_and_contents_struct)
-        garbage.extend(linkedgarbage)
+            # Merge all authors and contents into a single global namespace
+            global_page_struct, basegarbage = self.create_global_page_struct(raw_author_and_contents_struct)
+            garbage.extend(basegarbage)
 
-        # Update files on disk
-        written_files = self.write_global_page_struct(global_page_struct)
+            # Link contents
+            linkgarbage = self.link_contents(global_page_struct)
+            garbage.extend(linkgarbage)
 
-        from pprint import pprint
-        pprint(global_page_struct, width=200, depth=4)
+            # WEBROOT access
+            webroot = DirFiles(self.pageconfig.WEBROOT)
+            files_before = webroot.to_dict(10, with_folders=True, with_files=True, hidden_files=True, hidden_folders=True)
 
-        # Delete old files
-        self.delete_files(written_files)
+            # Update files on disk
+            written_files = self.write_global_page_struct(global_page_struct, webroot.path)
 
-        # ### Finish ###
-        # Now safe destroy garbage contents
-        for element in garbage:
-            element.clear()
-        garbage.clear()
+            # from pprint import pprint
+            # pprint(global_page_struct, width=200, depth=4)
+            # Delete old files
+            self.delete_files(files_before, written_files)
+
+        finally:
+            # ### Finish ###
+            # Now safe destroy garbage contents
+            for element in garbage:
+                element.clear()
+            garbage.clear()
 
         # Store each repo date as last processed date.
         for typename, repodict in repos.items():

@@ -79,6 +79,10 @@ class HackersweblogConfig:
         # Index file name of root documents
         "INDEX_FILE": "index.html",
 
+        # All files of content directories will be copied.
+        # Valid content files may be skipped.
+        "COPY_CONTENT_MD": False,
+
         # If a content has no image tag set and none of "tag".jpg in content.tags can be found, use this one:
         "CONTENT_IMAGE": "content.jpg",
 
