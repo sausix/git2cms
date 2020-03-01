@@ -31,18 +31,6 @@ class SetOfMutable:
         """ Return a shallow copy of a set. """
         return SetOfMutable(self.data.values())
 
-    def difference(self, *args, **kwargs): # real signature unknown
-        """
-        Return the difference of two or more sets as a new set.
-
-        (i.e. all elements that are in this set but not the others.)
-        """
-        pass
-
-    def difference_update(self, *args, **kwargs): # real signature unknown
-        """ Remove all elements of another set from this set. """
-        pass
-
     def discard(self, element):
         """
         Remove an element from a set if it is a member.
@@ -52,30 +40,6 @@ class SetOfMutable:
         key = id(element)
         if key in self.data:
             self.data.pop(key)
-
-    def intersection(self, *args, **kwargs): # real signature unknown
-        """
-        Return the intersection of two sets as a new set.
-
-        (i.e. all elements that are in both sets.)
-        """
-        pass
-
-    def intersection_update(self, *args, **kwargs): # real signature unknown
-        """ Update a set with the intersection of itself and another. """
-        pass
-
-    def isdisjoint(self, *args, **kwargs): # real signature unknown
-        """ Return True if two sets have a null intersection. """
-        pass
-
-    def issubset(self, *args, **kwargs): # real signature unknown
-        """ Report whether another set contains this set. """
-        pass
-
-    def issuperset(self, *args, **kwargs): # real signature unknown
-        """ Report whether this set contains another set. """
-        pass
 
     def pop(self):
         """
@@ -99,26 +63,6 @@ class SetOfMutable:
             raise KeyError(repr(element))
 
         self.data.pop(key)
-
-    def symmetric_difference(self, *args, **kwargs): # real signature unknown
-        """
-        Return the symmetric difference of two sets as a new set.
-
-        (i.e. all elements that are in exactly one of the sets.)
-        """
-        pass
-
-    def symmetric_difference_update(self, *args, **kwargs): # real signature unknown
-        """ Update a set with the symmetric difference of itself and another. """
-        pass
-
-    def union(self, *args, **kwargs): # real signature unknown
-        """
-        Return the union of sets as a new set.
-
-        (i.e. all elements that are in either set.)
-        """
-        pass
 
     def update(self, iterable):
         """ Update a set with the union of itself and others. """
@@ -144,3 +88,63 @@ class SetOfMutable:
         return "SetOfMutable({})".format(", ".join(repr(item) for item in self.data.values()))
 
     __hash__ = None
+
+    '''
+    Not yet implemented
+    
+    def difference(self, *args, **kwargs): # real signature unknown
+        """
+        Return the difference of two or more sets as a new set.
+
+        (i.e. all elements that are in this set but not the others.)
+        """
+        pass
+
+    def difference_update(self, *args, **kwargs): # real signature unknown
+        """ Remove all elements of another set from this set. """
+        pass
+
+    def intersection(self, *args, **kwargs): # real signature unknown
+        """
+        Return the intersection of two sets as a new set.
+
+        (i.e. all elements that are in both sets.)
+        """
+        pass
+
+    def intersection_update(self, *args, **kwargs): # real signature unknown
+        """ Update a set with the intersection of itself and another. """
+        pass
+
+    def isdisjoint(self, *args, **kwargs): # real signature unknown
+        """ Return True if two sets have a null intersection. """
+        pass
+
+    def issubset(self, *args, **kwargs): # real signature unknown
+        """ Report whether another set contains this set. """
+        pass
+
+    def issuperset(self, *args, **kwargs): # real signature unknown
+        """ Report whether this set contains another set. """
+        pass
+
+    def symmetric_difference(self, *args, **kwargs): # real signature unknown
+        """
+        Return the symmetric difference of two sets as a new set.
+
+        (i.e. all elements that are in exactly one of the sets.)
+        """
+        pass
+
+    def symmetric_difference_update(self, *args, **kwargs): # real signature unknown
+        """ Update a set with the symmetric difference of itself and another. """
+        pass
+
+    def union(self, *args, **kwargs): # real signature unknown
+        """
+        Return the union of sets as a new set.
+
+        (i.e. all elements that are in either set.)
+        """
+        pass
+    '''

@@ -3,12 +3,25 @@ from pathlib import Path
 import re
 import markdown
 import datetime
+import traceback
+import shutil
 from config.config import Config
 from dirtools import DirFiles
 from repo import RepoDir
 from fileparser import parse_md_file
 from setofmutable import SetOfMutable
 from streamlogging import Logger
+
+
+def _copy(self: Path, target: Path) -> Union[Path, None]:
+    if not self.is_file():
+        return None
+
+    return Path(shutil.copy(str(self), str(target)))
+
+# Append copy function for Files in Path-Objects
+Path.copy = _copy
+
 
 AUTHORMETA_FILE = "author/meta.md"
 
@@ -22,7 +35,10 @@ required_author_meta_keys = {"nickname", "contentgrant"}
 reserved_author_meta_keys = {"contents", "langs", "gitsources"}
 
 required_content_keys = {"title", "date", "description"}
-reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url", "template", "model", "id", "links"}
+reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url", "template", "model",
+                         "id", "links", "file", "files"}
+
+md = markdown.Markdown()
 
 
 def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
@@ -82,7 +98,10 @@ class PageContent:
 
         for metakey in reserved:
             self.log.warn(f"Content meta contains a reserved meta key: {metakey}. It will be removed or overwritten.")
-            del(contentmeta[metakey])
+            contentmeta.pop(metakey)
+
+        for metakey in missing:
+            self.log.err(f"Required content meta key missing: '{metakey}'.")
 
         return len(missing) == 0
 
@@ -128,11 +147,11 @@ class PageContent:
             # Check grant of contents
             grant = authormeta.get("contentgrant", NotImplemented)
             if grant is NotImplemented:
-                self.log.warn(f"Skipping author repo {repoid} because missing contentgrant header in {AUTHORMETA_FILE}.")
+                self.log.warn(f"Skipping repo {repoid} because missing contentgrant header in {AUTHORMETA_FILE}.")
                 continue
 
             if grant is None:
-                self.log.warn(f"Skipping author repo {repoid} because not granted to this website.")
+                self.log.warn(f"Skipping repo {repoid} because not granted to this website.")
                 continue
 
             if isinstance(grant, str):
@@ -167,7 +186,8 @@ class PageContent:
                     continue
 
                 # Merge check main description of author
-                self._addmerge("content", {mainlang: content.strip()}, authormeta, f"repo[{repoid}]/{AUTHORMETA_FILE}:content")
+                self._addmerge("content", {mainlang: content.strip()}, authormeta,
+                               f"repo[{repoid}]/{AUTHORMETA_FILE}:content")
 
             # Check additional author descriptions
             for path, file in files.items():  # type: str, Path
@@ -264,17 +284,24 @@ class PageContent:
 
         files = authorrepo.files
 
+        uselinking = self.pageconfig.FEATURES.get("content:linking", True)
+        copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
+        copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
+
+        def contentlang(path: str):
+            # Try match content/*.lang.md files
+            match = is_content_id_lang_md.search(path)
+            if not match:
+                # Try match content/*/lang.md files
+                match = is_directory_lang_md.search(path)
+            return match
+
         for fpath, file in files.items():  # type: str, Path
             # Try match content/*.md files
             if not is_md.match(fpath):
                 continue
 
-            # Try match content/*.lang.md files
-            m = is_content_id_lang_md.search(fpath)
-            if not m:
-                # Try match content/*/lang.md files
-                m = is_directory_lang_md.search(fpath)
-
+            m = contentlang(fpath)
             if not m:
                 self.log.warn(f"Skipping content of {fpath} because file does not match naming requirements.")
                 continue
@@ -284,18 +311,34 @@ class PageContent:
             headers, content = parse_md_file(file)
             garbage.append(headers)
             contentid = m.group(1)
+
+            # TODO urlencode contentid here
+
             lang = m.group(2)
 
             # Sanity checks
-            self.check_contentmeta(headers)
+            if not self.check_contentmeta(headers):
+                self.log.warn(f"Skipping content of {fpath} because some required meta keys are missing.")
+                continue
 
             # Create repo related dynamic headers
             headers["gitsource"] = authorrepo.origin
             headers["mdsource"] = fpath
             headers["lang"] = lang
             headers["id"] = contentid
-            headers["links"] = SetOfMutable()
-            garbage.append(headers["links"])
+
+            if uselinking:
+                headers["links"] = SetOfMutable()  # to add unhashable dicts to a set by id.
+                garbage.append(headers["links"])
+
+            if copyfiles:
+                # Track all files in same folder except content files
+                parentfolder = file.parent
+                headers["files"] = set(f for f in parentfolder.iterdir() if f.is_file() and not contentlang(str(f)))
+
+            if copyfile:
+                # Sourcefile itself
+                headers["file"] = file
 
             # Early basic header analysis and translations
             if not self.replace_headers_basic_inplace(headers):
@@ -421,9 +464,10 @@ class PageContent:
 
         # Collect all lists and dicts containing references to other objects
         garbage = list()
-        contents: dict = namespace["contents"]
+        contentsl: dict = namespace["contents"]
 
         deflang = self.pageconfig.CONTENT_SETTINGS["LANG_DEFAULT"]
+        uselinking = self.pageconfig.FEATURES.get("content:linking", True)
 
         def get_linked_content(headerkey: str, c: dict) -> Union[dict, None]:
             if headerkey not in c:
@@ -435,46 +479,52 @@ class PageContent:
 
             for link in c[headerkey]:  # type: str
                 if link == cid:
-                    self.log.warn(f"Selflinking: Header {headerkey} of content '{cid}' in language '{clang}' points to itself. Skipped.")
+                    self.log.warn(f"Selflinking: Header {headerkey} of content '{cid}'"
+                                  f" in language '{clang}' points to itself. Skipped.")
                     continue
 
                 # Link valid?
-                if link not in contents:
-                    self.log.warn(f"Unknown contentid: Header {headerkey} of content '{cid}' in language {clang} points to unknown contentid: '{link}'. Skipped.")
+                if link not in contentsl:
+                    self.log.warn(f"Unknown contentid: Header {headerkey} of content '{cid}'"
+                                  f" in language {clang} points to unknown contentid: '{link}'. Skipped.")
                     continue
 
                 # Get best language
-                destcontentl: dict = contents[link]
+                destcontentl: dict = contentsl[link]
                 if clang in destcontentl:
                     # Found same language
                     return destcontentl[lang]
 
                 if deflang in destcontentl:
                     # Fallback: Found content in deflang
-                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}' points to default language: '{deflang}'.")
+                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}'"
+                                  f" points to default language: '{deflang}'.")
                     return destcontentl[deflang]
 
                 if len(destcontentl):
                     # Get first language.
                     firstlang, destcontent = next(iter(destcontentl.items()))
-                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}' points to first found language: '{firstlang}'.")
+                    self.log.warn(f"Crosslanguage: Header {headerkey} of content '{cid}' in language '{clang}'"
+                                  f" points to first found language: '{firstlang}'.")
                     return destcontent
 
-                self.log.warn(f"Invalid link: Header {headerkey} of content '{cid}' in language '{clang}' does not match any contents.")
+                self.log.warn(f"Invalid link: Header {headerkey} of content '{cid}'"
+                              f" in language '{clang}' does not match any contents.")
                 return None
 
-        for contentid, contentl in contents.items():  # type: str, dict
+        for contentid, contentl in contentsl.items():  # type: str, dict
             for lang, content in contentl.items():  # type: str, dict
-                # Linkto
-                linkcontent = get_linked_content("linkto", content)
-                if linkcontent is not None:
-                    content["links"].add(linkcontent)
+                if uselinking:
+                    # Linkto
+                    linkcontent = get_linked_content("linkto", content)
+                    if linkcontent is not None:
+                        content["links"].add(linkcontent)
 
-                # Linkwith
-                linkcontent = get_linked_content("linkwith", content)
-                if linkcontent is not None:
-                    content["links"].add(linkcontent)
-                    linkcontent["links"].add(content)
+                    # Linkwith
+                    linkcontent = get_linked_content("linkwith", content)
+                    if linkcontent is not None:
+                        content["links"].add(linkcontent)
+                        linkcontent["links"].add(content)
 
                 # langs
                 content["langs"] = contentl
@@ -486,15 +536,159 @@ class PageContent:
 
         return garbage
 
-    def write_global_page_struct(self, struct, destfolder: Path) -> Dict[str, Path]:
-        if not destfolder.is_dir():
-            self.log.err(f"Destination folder configured in pageconfig.WEBROOT as '{destfolder}' is missing. Create it with correct permissions first.")
+    def write_global_page_struct(self, struct, webroot: Path) -> dict:
+        if not webroot.is_dir():
+            self.log.err(f"Destination folder configured in pageconfig.WEBROOT as '{webroot}'"
+                         f" is missing. Create it with correct permissions first.")
             raise FileNotFoundError("Folder WEBROOT not existing.")
 
-        return {"": Path()}
+        deflang = self.pageconfig.CONTENT_SETTINGS.get("LANG_DEFAULT", "en")
+        index_only = self.pageconfig.CONTENT_SETTINGS.get("INDEX_ONLY", False)
+        index_file = self.pageconfig.CONTENT_SETTINGS.get("INDEX_FILE", "index.html")
+        file_extension = self.pageconfig.CONTENT_SETTINGS.get("CONTENT_FILE_EXTENSION", ".html")
+        useauthors = self.pageconfig.FEATURES.get("content:authors", True)
+        uselinking = self.pageconfig.FEATURES.get("content:linking", True)
+        copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
+        copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
 
-    def delete_files(self, files_before: dict, files_new: dict):
-        pass
+        shared_folder = not index_only
+
+        # Track all touched files
+        touched_files = dict()
+
+        def get_folder_file(cid: str, clang: str):
+            "Determine folder, create it if needed, and create filename"
+
+            def createfolder(cfolder: Path, depth=0):
+                if str(cfolder) not in touched_files:
+                    relfolder = cfolder.relative_to(webroot)
+                    if relfolder.name:
+                        touched_files[str(relfolder)] = cfolder
+
+                if cfolder.is_dir():
+                    # Folder already exists. All fine.
+                    return
+
+                if depth>16:
+                    self.log.err(f"Reached maxdepth while creating parent folders: {cfolder}")
+                    return
+
+                if cfolder.exists():
+                    self.log.err(f"Directory could not be created. Element already on disk: {cfolder}")
+                    return
+
+                parent = cfolder.parent
+                createfolder(parent, depth+1)
+
+                # Create this folder
+                cfolder.mkdir()
+
+            if index_only:
+                # python/learn/index.html
+                # python/learn/en/index.html
+                if not clang or clang == deflang:
+                    rfolder = webroot / cid
+                else:
+                    rfolder = webroot / cid / clang
+                rfile = rfolder / index_file
+
+            else:
+                # python/learn.html
+                # python/learn-en.html
+                vfolder = webroot / cid
+                rfolder = vfolder.parent
+                fname = vfolder.name
+
+                if not clang or clang == deflang:
+                    rfile = rfolder / f"{fname}{file_extension}"
+                else:
+                    rfile = rfolder / f"{fname}-{clang}{file_extension}"
+
+            if not clang:
+                # No changes, just an informational request
+                return rfolder, rfile
+
+            if str(rfolder) not in touched_files:
+                createfolder(rfolder)
+            relfile = rfile.relative_to(webroot)
+
+            fileid = str(relfile)
+            if fileid in touched_files:
+                self.log.err(f"File collision at '{fileid}'. Content will be overwritten.")
+            else:
+                touched_files[fileid] = rfile
+
+            return rfolder, rfile
+
+        def copy(cfiles: set, destfolder: Path):
+            for cfile in cfiles:  # type: Path
+                newdest = cfile.copy(destfolder)
+                newid = str(newdest.relative_to(webroot))
+                touched_files[newid] = newdest
+
+        # Write contents
+        contentsl = struct["contents"]
+        for contentid, contentl in contentsl.items():  # type: str, dict
+            if shared_folder:
+                # Files share same folder. Collect all of each language.
+                copyfiles = set()
+
+            for lang, content in contentl.items():  # type: str, dict
+                folder, file = get_folder_file(contentid, lang)
+
+                md.reset()
+                content_html = md.convert(content["content"])
+                file.write_text(content_html, encoding="UTF-8", errors="xmlcharrefreplace")
+
+                # Get other source files
+                if not shared_folder:
+                    copyfiles = set()
+
+                if copyfiles:
+                    copyfiles.update(content["files"])
+                if copyfile:
+                    copyfiles.add(content["file"])
+
+                if not shared_folder:
+                    # Copy to own folder (duplicates possible)
+                    copy(copyfiles, folder)
+
+            if shared_folder:
+                commonfolder, _ = get_folder_file(contentid, "")
+                copy(copyfiles, commonfolder)
+
+        return touched_files
+
+    def get_orphan_files(self, root: Path, files_before: dict, files_touched: dict) -> dict:
+        "Determine old files or folders not used anymore"
+
+        before = set(files_before)
+        touched = set(files_touched)
+        orphans = before.difference(touched)
+
+        return {orphan: files_before[orphan] for orphan in orphans}
+
+    def delete_files(self, itemlist: dict):
+        "Determine old files or folders not used anymore and delete them"
+
+        log = self.log.sublogger("DELETEOLD")
+
+        def rm_dir(folder: Path):
+            log.out(f"Folder: {folder}")
+            for element in folder.iterdir():
+                if element.is_dir():
+                    rm_dir(element)
+                if element.is_file():
+                    log.out(f"File: {element}")
+                    element.unlink(missing_ok=True)
+            folder.rmdir()
+
+        for orphan in itemlist.values():  # type: Path
+            if orphan.is_file():
+                log.out(f"File: {orphan}")
+                orphan.unlink(missing_ok=True)
+            if orphan.is_dir():
+                rm_dir(orphan)
 
     def generate(self, repos: dict, onlywhenchanged: bool = False):
         """
@@ -524,17 +718,42 @@ class PageContent:
             linkgarbage = self.link_contents(global_page_struct)
             garbage.extend(linkgarbage)
 
-            # WEBROOT access
+            # ### WEBROOT access ###
             webroot = DirFiles(self.pageconfig.WEBROOT)
             files_before = webroot.to_dict(10, with_folders=True, with_files=True, hidden_files=True, hidden_folders=True)
 
             # Update files on disk
-            written_files = self.write_global_page_struct(global_page_struct, webroot.path)
+            touched_files = self.write_global_page_struct(global_page_struct, webroot.path)
 
             # from pprint import pprint
             # pprint(global_page_struct, width=200, depth=4)
+
             # Delete old files
-            self.delete_files(files_before, written_files)
+            delete_files = self.get_orphan_files(webroot.path, files_before, touched_files)
+
+            self.delete_files(delete_files)
+
+            # Create file index?
+            fileindex = self.pageconfig.FEATURES.get("generate:fileindex", None)
+            if isinstance(fileindex, Path):
+                if not fileindex.is_absolute():
+                    fileindex = self.pageconfig.ROOT / fileindex
+
+                with open(str(fileindex), "w") as fi:
+                    fi.write("File index of generation")
+
+                    fi.write("\n\nTouched files:\n")
+                    for file in touched_files:
+                        fi.write(f"  {file}\n")
+
+                    fi.write("\n\nDeleted files:\n")
+                    for file in delete_files:
+                        fi.write(f"  {file}\n")
+
+        except Exception as err:
+            self.log.err(traceback.format_exc())
+            for earg in err.args:
+                self.log.err(earg)
 
         finally:
             # ### Finish ###

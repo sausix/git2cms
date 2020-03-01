@@ -20,7 +20,7 @@ class Logger:
             stream.write(", ".join(self._subsections))
             stream.write("] ")
 
-        stream.write(msg)
+        stream.write(str(msg))
         stream.write("\n")
 
     def out(self, msg: str):

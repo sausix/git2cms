@@ -41,10 +41,10 @@ class Page:
         if isinstance(self.pageconfig.ROOT, Path):
             # Path set
             if not self.pageconfig.ROOT.is_absolute():
-                self.pageconfig.ROOT = Path(self.config.ROOT) / Path(self.pageconfig.ROOT)
+                self.pageconfig.ROOT = self.config.ROOT / self.pageconfig.ROOT
         else:
             # Not set or unknown type
-            self.pageconfig.ROOT = Path(self.config.ROOT)
+            self.pageconfig.ROOT = self.config.ROOT
 
         root = self.pageconfig.ROOT
 
@@ -67,10 +67,6 @@ class Page:
         for path in self.pageconfig.CLONE_DESTINATIONS.values():
             p = Path(path)
             p.mkdir(parents=True, exist_ok=True)
-
-        # Create pageconfig.WEBROOT folder
-        if isinstance(self.pageconfig.WEBROOT, Path):
-            self.pageconfig.WEBROOT.mkdir(parents=True, exist_ok=True)
 
         # Create logfile folders
         if isinstance(self.pageconfig.LOGFILE, Path):

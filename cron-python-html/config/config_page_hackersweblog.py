@@ -51,10 +51,25 @@ class HackersweblogConfig:
     # Where to write generated content to.
     #  Script-User need either write access to this directory or http server user need read access there.
     # WEBROOT = Path("/srv/http/hackersweblog.net/beta")
-    WEBROOT = Path("content")
+    WEBROOT = Path("webroot")
+
+    # Static directories under WEBROOT wont be modified or deleted.
+    WEBROOT_STATIC_DIRS = {
+        WEBROOT / "static"
+    }
 
     # If no other output defined (cron task), use this one.
     LOGFILE = Path("generate.log")
+
+    FEATURES = {  # TODO implement feature options in code
+        "content:linking": True,  # meta headers linkto, linkwith
+        "content:tags": True,  # tags and tag index pages
+        "content:authors": True,  # Create author pages
+        "files:copy:other": True,  # copy images, downloads
+        "files:copy:md": False,  # copy md source file
+        "generate:fileindex": Path("files.txt"),
+        "lang:preferisolate": True,
+    }
 
     CONTENT_SETTINGS = {
         # Preferred language if not specified. Main language of page.
@@ -70,7 +85,7 @@ class HackersweblogConfig:
         # Generate extensions
         #  INDEX_ONLY = False
         #   file.md to file.html
-        #   file.en.md to file/en.html
+        #   file.en.md to file-en.html
         #  INDEX_ONLY = True
         #   file.md to file/index.html
         #   file.en.md to file/en/index.html
@@ -79,9 +94,9 @@ class HackersweblogConfig:
         # Index file name of root documents
         "INDEX_FILE": "index.html",
 
-        # All files of content directories will be copied.
-        # Valid content files may be skipped.
-        "COPY_CONTENT_MD": False,
+        # Replace ugly URL chars to this char.
+        # None refers to urlencode.
+        "REPLACE_URL_CHAR": "-",
 
         # If a content has no image tag set and none of "tag".jpg in content.tags can be found, use this one:
         "CONTENT_IMAGE": "content.jpg",
