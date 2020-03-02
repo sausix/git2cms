@@ -15,7 +15,7 @@ class HackersweblogConfig:
 
     # Root directory below Config.ROOT or absolute
     # Affect all project's working directories below if they're absolute
-    ROOT = Path(f"{PAGEID}")
+    ROOT = Path(PAGEID)
 
     # Date and time formats for each propertyname used in datetimes.
     # Languages may be diverge. Formats without language code refer to ISO.
@@ -35,7 +35,8 @@ class HackersweblogConfig:
         #  Dictionary of template sources to clone.
         #  Key is template id.
         "TEMPLATES": {
-            f"{PAGEID}": "https://github.com/DeatPlayer/hackersweblog.net-page-template"
+            # f"{PAGEID}": "https://github.com/DeatPlayer/hackersweblog.net-page-template",
+            f"{PAGEID}": "https://github.com/sausix/hackersweblog.net-page-template.git"
         },
 
         # Content sources

@@ -1,9 +1,9 @@
 import subprocess
 import sys
 from pathlib import Path
-from pagecontent import PageContent
-from repo import RepoDir
-from streamlogging import Logger
+from libs.pagecontent import PageContent
+from libs.repo import RepoDir
+from libs.streamlogging import Logger
 
 
 class Page:

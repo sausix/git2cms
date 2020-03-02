@@ -8,17 +8,17 @@ class Logger:
         self._warn = warn
         self._err = err
         self._subsections = []
-        self.prefix_warn = "~ WARN ~ " if self._warn is self._out else ""
-        self.prefix_err = "# ERROR # " if self._err is self._out else ""
+        self.prefix_warn = "[WARN] " if self._warn is self._out else ""
+        self.prefix_err = "### [ERROR] " if self._err is self._out else ""
 
     def _write(self, stream: TextIO, msg: str, prefix: str = ""):
-        if prefix:
-            stream.write(prefix)
-
         if len(self._subsections):
             stream.write("[")
-            stream.write(", ".join(self._subsections))
+            stream.write(":".join(self._subsections))
             stream.write("] ")
+
+        if prefix:
+            stream.write(prefix)
 
         stream.write(str(msg))
         stream.write("\n")

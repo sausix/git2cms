@@ -5,12 +5,12 @@ import markdown
 import datetime
 import traceback
 import shutil
-from config.config import Config
-from dirtools import DirFiles
-from repo import RepoDir
-from fileparser import parse_md_file
-from setofmutable import SetOfMutable
-from streamlogging import Logger
+from config import Config
+from libs.dirtools import DirFiles
+from libs.repo import RepoDir
+from libs.fileparser import parse_md_file
+from libs.setofmutable import SetOfMutable
+from libs.streamlogging import Logger
 
 
 def _copy(self: Path, target: Path) -> Union[Path, None]:
@@ -537,11 +537,6 @@ class PageContent:
         return garbage
 
     def write_global_page_struct(self, struct, webroot: Path) -> dict:
-        if not webroot.is_dir():
-            self.log.err(f"Destination folder configured in pageconfig.WEBROOT as '{webroot}'"
-                         f" is missing. Create it with correct permissions first.")
-            raise FileNotFoundError("Folder WEBROOT not existing.")
-
         deflang = self.pageconfig.CONTENT_SETTINGS.get("LANG_DEFAULT", "en")
         index_only = self.pageconfig.CONTENT_SETTINGS.get("INDEX_ONLY", False)
         index_file = self.pageconfig.CONTENT_SETTINGS.get("INDEX_FILE", "index.html")
@@ -719,14 +714,23 @@ class PageContent:
             garbage.extend(linkgarbage)
 
             # ### WEBROOT access ###
-            webroot = DirFiles(self.pageconfig.WEBROOT)
+            writedir = self.pageconfig.WEBROOT
+            if not writedir.is_dir():
+                self.log.err(f"Destination folder configured in pageconfig.WEBROOT as '{writedir}'"
+                             f" is missing. Create it with correct permissions first.")
+                raise FileNotFoundError("Folder WEBROOT not existing.")
+
+            # Remember old files
+            webroot = DirFiles(writedir)
             files_before = webroot.to_dict(10, with_folders=True, with_files=True, hidden_files=True, hidden_folders=True)
 
             # Update files on disk
             touched_files = self.write_global_page_struct(global_page_struct, webroot.path)
 
-            # from pprint import pprint
-            # pprint(global_page_struct, width=200, depth=4)
+            from pprint import pprint
+            structfile: Path = self.pageconfig.ROOT / "struct.txt"
+            with open(str(structfile), "w") as sf:
+                pprint(global_page_struct, width=200, depth=4, stream=sf)
 
             # Delete old files
             delete_files = self.get_orphan_files(webroot.path, files_before, touched_files)

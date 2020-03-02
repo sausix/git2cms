@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import sys
-from config.config import Config
-from page import Page
-from streamlogging import Logger
+from config import Config
+from libs.page import Page
+from libs.streamlogging import Logger
 
 
 class Updater:
