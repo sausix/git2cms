@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-#if os.name == 'nt':
+# if os.name == 'nt':
 #    import win32api, win32con  # TODO requirements
 
 

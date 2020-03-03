@@ -4,13 +4,13 @@ from pathlib import Path
 from libs.pagecontent import PageContent
 from libs.repo import RepoDir
 from libs.streamlogging import Logger
+from libs.abs.pageconfig import PageConfig
 
 
 class Page:
-    def __init__(self, config, pageconfig, logger: Logger=None):
+    def __init__(self, config, pageconfig: PageConfig, logger: Logger = None):
         self.config = config
         self.pageconfig = pageconfig
-        self._create_absolute_pagepaths()
         self._check_pagepaths()
 
         self.log = logger
@@ -36,6 +36,7 @@ class Page:
         self.log.err(text)
         raise Exception(text)
 
+    """
     def _create_absolute_pagepaths(self):
         # pageconfig.ROOT
         if isinstance(self.pageconfig.ROOT, Path):
@@ -61,6 +62,7 @@ class Page:
         # pageconfig.LOGFILE
         if not self.pageconfig.LOGFILE.is_absolute():
             self.pageconfig.LOGFILE = root / self.pageconfig.LOGFILE
+    """
 
     def _check_pagepaths(self):
         # Create CLONE_DESTINATIONS folders

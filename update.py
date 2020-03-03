@@ -12,7 +12,7 @@ class Updater:
         self.noclone = False
         self.noclonetemplates = False
         self.nogenerate = False
-        self.generate_on_changes = False
+        self.generate_on_changes_only = False
         self.fromcron = False
 
     def fail(self, text: str):
@@ -86,7 +86,7 @@ class Updater:
         self.noclonetemplates = "--noclone-templates" in args
         self.nogenerate = "--nogenerate" in args
         self.fromcron = "--cron" in args
-        self.generate_on_changes = self.fromcron
+        self.generate_on_changes_only = self.fromcron
 
         if len(pages) == 0:
             self.log.warn("No pages configured/selected.")
@@ -105,14 +105,14 @@ class Updater:
             if not self.noclonetemplates:
                 p.clone_templates()
         if not self.nogenerate:
-            p.generate_content(self.generate_on_changes)
+            p.generate_content(self.generate_on_changes_only)
         self.log.out(f"Done processing of '{pageconfig.PAGEID}'.")
 
 
 if __name__ == "__main__":
     # Create app and assign config
     updater = Updater(Config())
-
+    # TODO exception handling
     # Run app
     #try:
     exitcode = updater.main(sys.argv[1:])  # Pass all command line options to args

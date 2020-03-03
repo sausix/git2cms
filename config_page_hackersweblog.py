@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
+from libs.abs.pageconfig import PageConfig
 
 
-class HackersweblogConfig:
+class HackersweblogConfig(PageConfig):
     """
-    Config for webpage content creation of a specific page
+    Config for webpage content creation of hackersweblog.net
     """
 
     # Authors need to grant their content to this page id in their meta.md
@@ -45,7 +46,7 @@ class HackersweblogConfig:
         "AUTHORS": {
             "sausix_main": "https://github.com/sausix/hackersweblog.net-author.git",
             "deatplayer_main": "https://github.com/DeatPlayer/hackersweblog.net-author.git",
-            "git2cms_manual": "https://github.com/sausix/git2cms.git"
+            "git2cms_manual": "https://github.com/sausix/git2cms-content-manual.git"
         }
     }
 
@@ -56,7 +57,7 @@ class HackersweblogConfig:
 
     # Static directories under WEBROOT wont be modified or deleted.
     WEBROOT_STATIC_DIRS = {
-        WEBROOT / "static"
+        Path("static"),
     }
 
     # If no other output defined (cron task), use this one.
@@ -80,20 +81,34 @@ class HackersweblogConfig:
         # If no template defined:
         "TEMPLATE_DEFAULT": f"{PAGEID}",
 
+        # ### File naming ############################################
         # Create INDEX_FILE in each named subfolder
         "INDEX_ONLY": False,
 
-        # Generate extensions
+        # Filename extension
+        "CONTENT_FILE_EXTENSION": ".html",
+
+        # Index file name of root documents
+        "INDEX_FILE": "index.html",
+
+        # Use title in url. Urls will be uglier an longer.
+        # "http://example.com/linux/php/how-to-remove-php.html"
+        # "URL_TITLE": False,
+
+        # Use title directly in root folder for url.
+        # INDEX_ONLY should be used to minimize naming conflicts on content merge.
+        # "http://example.com/how-to-remove-php.html"
+        # "http://example.com/how-to-remove-php/index.html"
+        # "URL_TITLE_ROOT_ONLY": False,
+
+        # Generated extensions
         #  INDEX_ONLY = False
         #   file.md to file.html
         #   file.en.md to file-en.html
         #  INDEX_ONLY = True
         #   file.md to file/index.html
         #   file.en.md to file/en/index.html
-        "CONTENT_FILE_EXTENSION": ".html",
-
-        # Index file name of root documents
-        "INDEX_FILE": "index.html",
+        # ############################################################
 
         # Replace ugly URL chars to this char.
         # None refers to urlencode.
@@ -107,6 +122,7 @@ class HackersweblogConfig:
         "TAG_DEFAULT": {"notag"},
 
         "GLOBAL_STRINGS": {
+            "pagename": "hackersweblog.net",
             "copyright": "© Copyright 2020"
         }
     }

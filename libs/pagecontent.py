@@ -1,11 +1,11 @@
 from typing import Tuple, Dict, Union
 from pathlib import Path
 import re
-import markdown
 import datetime
 import traceback
 import shutil
 from config import Config
+from libs.content import TemplateModels
 from libs.dirtools import DirFiles
 from libs.repo import RepoDir
 from libs.fileparser import parse_md_file
@@ -19,6 +19,7 @@ def _copy(self: Path, target: Path) -> Union[Path, None]:
 
     return Path(shutil.copy(str(self), str(target)))
 
+
 # Append copy function for Files in Path-Objects
 Path.copy = _copy
 
@@ -31,14 +32,18 @@ is_directory_lang_md = re.compile(r"^content/?(.*)/([a-z]{2})\.md$")
 is_md = re.compile(r"^content/.*\.md$")
 is_valid_single_lang = re.compile(r"^[a-z]{2}$")
 
+# Authors need at least these meta headers
 required_author_meta_keys = {"nickname", "contentgrant"}
+
+# Predefined meta headers will be removed
 reserved_author_meta_keys = {"contents", "langs", "gitsources"}
 
+# Content need at least these meta headers
 required_content_keys = {"title", "date", "description"}
-reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url", "template", "model",
-                         "id", "links", "file", "files"}
 
-md = markdown.Markdown()
+# Predefined meta headers will be removed
+reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url",
+                         "id", "links", "file", "files"}
 
 
 def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
@@ -285,8 +290,8 @@ class PageContent:
         files = authorrepo.files
 
         uselinking = self.pageconfig.FEATURES.get("content:linking", True)
-        copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
-        copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
+        do_copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
+        do_copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
 
         def contentlang(path: str):
             # Try match content/*.lang.md files
@@ -331,12 +336,12 @@ class PageContent:
                 headers["links"] = SetOfMutable()  # to add unhashable dicts to a set by id.
                 garbage.append(headers["links"])
 
-            if copyfiles:
+            if do_copyfiles:
                 # Track all files in same folder except content files
                 parentfolder = file.parent
-                headers["files"] = set(f for f in parentfolder.iterdir() if f.is_file() and not contentlang(str(f)))
+                headers["files"] = set(f for f in parentfolder.iterdir() if f.is_file() and not contentlang(str(f.relative_to(authorrepo.path))))
 
-            if copyfile:
+            if do_copyfile:
                 # Sourcefile itself
                 headers["file"] = file
 
@@ -536,23 +541,24 @@ class PageContent:
 
         return garbage
 
-    def write_global_page_struct(self, struct, webroot: Path) -> dict:
+    def write_global_page_struct(self, struct, webroot: Path, templates: dict) -> dict:
         deflang = self.pageconfig.CONTENT_SETTINGS.get("LANG_DEFAULT", "en")
         index_only = self.pageconfig.CONTENT_SETTINGS.get("INDEX_ONLY", False)
         index_file = self.pageconfig.CONTENT_SETTINGS.get("INDEX_FILE", "index.html")
         file_extension = self.pageconfig.CONTENT_SETTINGS.get("CONTENT_FILE_EXTENSION", ".html")
+        default_template = self.pageconfig.CONTENT_SETTINGS.get("TEMPLATE_DEFAULT", None)
+
         useauthors = self.pageconfig.FEATURES.get("content:authors", True)
         uselinking = self.pageconfig.FEATURES.get("content:linking", True)
-        copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
-        copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
-
-        shared_folder = not index_only
+        do_copyfiles = self.pageconfig.FEATURES.get("files:copy:other", True)
+        do_copyfile = self.pageconfig.FEATURES.get("files:copy:md", False)
+        use_tags = self.pageconfig.FEATURES.get("content:tags", True)
 
         # Track all touched files
         touched_files = dict()
 
-        def get_folder_file(cid: str, clang: str):
-            "Determine folder, create it if needed, and create filename"
+        def get_folder_file_url(cid: str, clang: str):
+            "Determine folder, create it if needed, propose filename and url"
 
             def createfolder(cfolder: Path, depth=0):
                 if str(cfolder) not in touched_files:
@@ -583,6 +589,7 @@ class PageContent:
                 # python/learn/en/index.html
                 if not clang or clang == deflang:
                     rfolder = webroot / cid
+                    rurl =
                 else:
                     rfolder = webroot / cid / clang
                 rfile = rfolder / index_file
@@ -613,7 +620,7 @@ class PageContent:
             else:
                 touched_files[fileid] = rfile
 
-            return rfolder, rfile
+            return rfolder, rfile, rurl
 
         def copy(cfiles: set, destfolder: Path):
             for cfile in cfiles:  # type: Path
@@ -621,36 +628,44 @@ class PageContent:
                 newid = str(newdest.relative_to(webroot))
                 touched_files[newid] = newdest
 
+        models = TemplateModels(templates, default_template)
+
         # Write contents
         contentsl = struct["contents"]
         for contentid, contentl in contentsl.items():  # type: str, dict
-            if shared_folder:
+            if not index_only:
                 # Files share same folder. Collect all of each language.
-                copyfiles = set()
+                files_to_copy = set()
 
             for lang, content in contentl.items():  # type: str, dict
-                folder, file = get_folder_file(contentid, lang)
+                folder, file, url = get_folder_file_url(contentid, lang)
 
-                md.reset()
-                content_html = md.convert(content["content"])
-                file.write_text(content_html, encoding="UTF-8", errors="xmlcharrefreplace")
+                # Remember url
+                content["url"] = url
 
-                # Get other source files
-                if not shared_folder:
-                    copyfiles = set()
+                # Add current content to namespace
+                struct["content"] = content
 
-                if copyfiles:
-                    copyfiles.update(content["files"])
-                if copyfile:
-                    copyfiles.add(content["file"])
+                # Generate html
+                html = models.translate_content(struct, "content")
+                file.write_text(html, encoding="UTF-8", errors="xmlcharrefreplace")
 
-                if not shared_folder:
+                # Collect other source files
+                if index_only:
+                    files_to_copy = set()
+
+                if do_copyfiles:
+                    files_to_copy.update(content["files"])
+                if do_copyfile:
+                    files_to_copy.add(content["file"])
+
+                if index_only:
                     # Copy to own folder (duplicates possible)
-                    copy(copyfiles, folder)
+                    copy(files_to_copy, folder)
 
-            if shared_folder:
+            if not index_only and files_to_copy:
                 commonfolder, _ = get_folder_file(contentid, "")
-                copy(copyfiles, commonfolder)
+                copy(files_to_copy, commonfolder)
 
         return touched_files
 
@@ -698,7 +713,8 @@ class PageContent:
 
         try:
             if onlywhenchanged:
-                if not self.need_regenerate([repo for repo in [repoclass for repoclass in repos.values()]]):
+                if not self.need_regenerate([repo for repodict in repos.values() for repo in repodict.values()]):
+                    self.log.out("No changed repositories found. No regeneration needed. Content should be up to date.")
                     return
 
             # Read all authors and their contents.
@@ -725,16 +741,15 @@ class PageContent:
             files_before = webroot.to_dict(10, with_folders=True, with_files=True, hidden_files=True, hidden_folders=True)
 
             # Update files on disk
-            touched_files = self.write_global_page_struct(global_page_struct, webroot.path)
+            touched_files = self.write_global_page_struct(global_page_struct, webroot.path, repos["TEMPLATES"])
 
-            from pprint import pprint
-            structfile: Path = self.pageconfig.ROOT / "struct.txt"
-            with open(str(structfile), "w") as sf:
-                pprint(global_page_struct, width=200, depth=4, stream=sf)
+            #from pprint import pprint
+            #structfile: Path = self.pageconfig.ROOT / "struct.txt"
+            #with open(str(structfile), "w") as sf:
+            #    pprint(global_page_struct, width=200, depth=4, stream=sf)
 
             # Delete old files
             delete_files = self.get_orphan_files(webroot.path, files_before, touched_files)
-
             self.delete_files(delete_files)
 
             # Create file index?

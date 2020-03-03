@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
-from config.config_page_hackersweblog import HackersweblogConfig
+
+from libs.abs.pageconfig import PageConfig
+from config_page_hackersweblog import HackersweblogConfig
+from typing import Iterable
+from abc import ABCMeta
 
 
 class Config:
@@ -36,7 +40,17 @@ class Config:
     # ROOT = "/home/git2cms"
     ROOT = Path("/home/as/workfiles")
 
-    # Active webpages. Import them on top of this file.
-    PAGES = {
-        HackersweblogConfig.PAGEID: HackersweblogConfig(),
-    }
+    # Active webpages. Import them on top of this file and add them here:
+    # LOADPAGES = MyOnlyPage
+    # LOADPAGES = Page1, Page2,
+    LOADPAGES = HackersweblogConfig
+
+    def __init__(self):
+        if isinstance(self.LOADPAGES, Iterable):
+            self.PAGES = {
+                page.PAGEID: page(self) for page in self.LOADPAGES
+            }
+        elif isinstance(self.LOADPAGES, ABCMeta):
+            if self.LOADPAGES.__base__ is PageConfig:
+                pc = self.LOADPAGES(self)
+                self.PAGES = {self.LOADPAGES.PAGEID: pc}

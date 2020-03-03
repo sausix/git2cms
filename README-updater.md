@@ -45,16 +45,13 @@ Don't rush git provider with too much git requests. Hourly is a good start.
 
 ## dev status
 
-TODO Adrian:
+TODO:
 
 * Linking and indexing content *(in progress)*
 * Translate markdown to html
-* Replacing template vars to global vars with Jitsi
+* Replacing template vars to global vars with Jinja
 * Optimize, organize project structure and outsource common classes and functions
 * Create PyPI package
-
-TODO Tim:
-
 * Organisations-Repo? (ohne Contents und Templates von hackersweblog.net)
 * Alle drei Template-Models mit aktuellen Varnames
 * Besser keine Ordner in templates
