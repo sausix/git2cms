@@ -1,15 +1,15 @@
 import os
-from pathlib import Path
+from libs.filecopying import PathC
 
 # if os.name == 'nt':
 #    import win32api, win32con  # TODO requirements
 
 
-def is_item_hidden_posix(item: Path) -> bool:
+def is_item_hidden_posix(item: PathC) -> bool:
     return item.name.startswith(".")
 
 
-def is_item_hidden_nt(item: Path) -> bool:
+def is_item_hidden_nt(item: PathC) -> bool:
     return False
     # attributes = win32api.GetFileAttributes(item)
     # return attributes & (win32con.FILE_ATTRIBUTE_HIDDEN | win32con.FILE_ATTRIBUTE_SYSTEM)
@@ -23,15 +23,15 @@ def os_hidden_func():
 
 
 class DirFiles:
-    def __init__(self, path: Path, hidden_file_func=os_hidden_func()):
-        self.path = path
+    def __init__(self, path: PathC, hidden_file_func=os_hidden_func()):
+        self.path = PathC(path)
         self.hidden_file_func = hidden_file_func
 
     def to_dict(self, maxdepth: int, with_folders=False, with_files=True, hidden_files=False, hidden_folders=False) -> dict:
-        def key(p: Path) -> str:
+        def key(p: PathC) -> str:
             return str(p.relative_to(self.path)).replace("\\", "/")
 
-        def loaditems(directory: Path, level: int) -> dict:
+        def loaditems(directory: PathC, level: int) -> dict:
             # Collect result set
             ret = dict()
 

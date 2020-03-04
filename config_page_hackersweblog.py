@@ -36,7 +36,7 @@ class HackersweblogConfig(PageConfig):
         #  Dictionary of template sources to clone.
         #  Key is template id.
         "TEMPLATES": {
-            # f"{PAGEID}": "https://github.com/DeatPlayer/hackersweblog.net-page-template",
+            # "cooltemplate": "https://github.com/DeatPlayer/hackersweblog.net-page-template",
             f"{PAGEID}": "https://github.com/sausix/hackersweblog.net-page-template.git"
         },
 
@@ -110,9 +110,10 @@ class HackersweblogConfig(PageConfig):
         #   file.en.md to file/en/index.html
         # ############################################################
 
-        # Replace ugly URL chars to this char.
-        # None refers to urlencode.
-        "REPLACE_URL_CHAR": "-",
+        # Replace spaces from content id for URLs to this char before urlencode does crazy things.
+        # None refers completely to urlencode.
+        # "SPACE_REPLACE": "_",
+        "SPACE_REPLACE": "-",
 
         # If a content has no image tag set and none of "tag".jpg in content.tags can be found, use this one:
         "CONTENT_IMAGE": "content.jpg",

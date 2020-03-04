@@ -1,27 +1,17 @@
-from typing import Tuple, Dict, Union
 from pathlib import Path
+from typing import Tuple, Dict, Union
+from libs.filecopying import PathC
 import re
 import datetime
 import traceback
-import shutil
 from config import Config
-from libs.content import TemplateModels
+from libs.content import ContentGenerator
 from libs.dirtools import DirFiles
 from libs.repo import RepoDir
 from libs.fileparser import parse_md_file
 from libs.setofmutable import SetOfMutable
 from libs.streamlogging import Logger
-
-
-def _copy(self: Path, target: Path) -> Union[Path, None]:
-    if not self.is_file():
-        return None
-
-    return Path(shutil.copy(str(self), str(target)))
-
-
-# Append copy function for Files in Path-Objects
-Path.copy = _copy
+from urllib import parse
 
 
 AUTHORMETA_FILE = "author/meta.md"
@@ -53,6 +43,16 @@ def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
     d = dictcollection[key] = dict()
     garbage.append(d)
     return d
+
+
+def get_orphan_files(files_before: dict, files_touched: dict) -> dict:
+    "Determine old files or folders not used anymore"
+
+    before = set(files_before)
+    touched = set(files_touched)
+    orphans = before.difference(touched)
+
+    return {orphan: files_before[orphan] for orphan in orphans}
 
 
 class PageContent:
@@ -316,9 +316,6 @@ class PageContent:
             headers, content = parse_md_file(file)
             garbage.append(headers)
             contentid = m.group(1)
-
-            # TODO urlencode contentid here
-
             lang = m.group(2)
 
             # Sanity checks
@@ -541,12 +538,13 @@ class PageContent:
 
         return garbage
 
-    def write_global_page_struct(self, struct, webroot: Path, templates: dict) -> dict:
+    def write_global_page_struct(self, namespace_struct, webroot: PathC, templates: dict) -> dict:
         deflang = self.pageconfig.CONTENT_SETTINGS.get("LANG_DEFAULT", "en")
         index_only = self.pageconfig.CONTENT_SETTINGS.get("INDEX_ONLY", False)
         index_file = self.pageconfig.CONTENT_SETTINGS.get("INDEX_FILE", "index.html")
         file_extension = self.pageconfig.CONTENT_SETTINGS.get("CONTENT_FILE_EXTENSION", ".html")
         default_template = self.pageconfig.CONTENT_SETTINGS.get("TEMPLATE_DEFAULT", None)
+        spreplchar = self.pageconfig.CONTENT_SETTINGS.get("SPACE_REPLACE", "-")
 
         useauthors = self.pageconfig.FEATURES.get("content:authors", True)
         uselinking = self.pageconfig.FEATURES.get("content:linking", True)
@@ -560,38 +558,20 @@ class PageContent:
         def get_folder_file_url(cid: str, clang: str):
             "Determine folder, create it if needed, propose filename and url"
 
-            def createfolder(cfolder: Path, depth=0):
-                if str(cfolder) not in touched_files:
-                    relfolder = cfolder.relative_to(webroot)
-                    if relfolder.name:
-                        touched_files[str(relfolder)] = cfolder
-
-                if cfolder.is_dir():
-                    # Folder already exists. All fine.
-                    return
-
-                if depth>16:
-                    self.log.err(f"Reached maxdepth while creating parent folders: {cfolder}")
-                    return
-
-                if cfolder.exists():
-                    self.log.err(f"Directory could not be created. Element already on disk: {cfolder}")
-                    return
-
-                parent = cfolder.parent
-                createfolder(parent, depth+1)
-
-                # Create this folder
-                cfolder.mkdir()
+            if type(spreplchar) is str:
+                cid_for_urlquote = cid.replace(" ", spreplchar)
+            else:
+                cid_for_urlquote = cid
 
             if index_only:
                 # python/learn/index.html
                 # python/learn/en/index.html
                 if not clang or clang == deflang:
                     rfolder = webroot / cid
-                    rurl =
+                    rurl = parse.quote(f"/{cid_for_urlquote}")
                 else:
                     rfolder = webroot / cid / clang
+                    rurl = parse.quote(f"/{cid_for_urlquote}/{clang}")
                 rfile = rfolder / index_file
 
             else:
@@ -603,17 +583,23 @@ class PageContent:
 
                 if not clang or clang == deflang:
                     rfile = rfolder / f"{fname}{file_extension}"
+                    rurl = parse.quote(f"/{cid_for_urlquote}{file_extension}")
                 else:
                     rfile = rfolder / f"{fname}-{clang}{file_extension}"
+                    rurl = parse.quote(f"/{cid_for_urlquote}-{clang}{file_extension}")
 
             if not clang:
                 # No changes, just an informational request
-                return rfolder, rfile
+                return rfolder, rfile, parse.quote(cid)
 
             if str(rfolder) not in touched_files:
-                createfolder(rfolder)
-            relfile = rfile.relative_to(webroot)
+                # Folder may not exist yet
+                createdfolders = rfolder.mkdir_result(parents=True, exist_ok=True)
+                if createdfolders:
+                    # Created some folders. Track them.
+                    touched_files.update({str(f.relative_to(webroot)): f for f in createdfolders})
 
+            relfile = rfile.relative_to(webroot)
             fileid = str(relfile)
             if fileid in touched_files:
                 self.log.err(f"File collision at '{fileid}'. Content will be overwritten.")
@@ -622,16 +608,21 @@ class PageContent:
 
             return rfolder, rfile, rurl
 
-        def copy(cfiles: set, destfolder: Path):
-            for cfile in cfiles:  # type: Path
+        def copy_flat(sourcefiles: set, destfolder: PathC):
+            "Copies sourcefiles directly into destfolder (without creating any folders)"
+            for cfile in sourcefiles:  # type: PathC
                 newdest = cfile.copy(destfolder)
                 newid = str(newdest.relative_to(webroot))
                 touched_files[newid] = newdest
 
-        models = TemplateModels(templates, default_template)
+        # Load html generator
+        generator = ContentGenerator(templates, default_template)
+
+        # Install files of all templates
+        touched_files.update(generator.install_template_files(webroot))
 
         # Write contents
-        contentsl = struct["contents"]
+        contentsl = namespace_struct["contents"]
         for contentid, contentl in contentsl.items():  # type: str, dict
             if not index_only:
                 # Files share same folder. Collect all of each language.
@@ -640,14 +631,11 @@ class PageContent:
             for lang, content in contentl.items():  # type: str, dict
                 folder, file, url = get_folder_file_url(contentid, lang)
 
-                # Remember url
+                # Assign specific url (with language code)
                 content["url"] = url
 
-                # Add current content to namespace
-                struct["content"] = content
-
                 # Generate html
-                html = models.translate_content(struct, "content")
+                html = generator.generate_content(namespace_struct, "content.html", content)
                 file.write_text(html, encoding="UTF-8", errors="xmlcharrefreplace")
 
                 # Collect other source files
@@ -661,29 +649,20 @@ class PageContent:
 
                 if index_only:
                     # Copy to own folder (duplicates possible)
-                    copy(files_to_copy, folder)
+                    copy_flat(files_to_copy, folder)
 
             if not index_only and files_to_copy:
-                commonfolder, _ = get_folder_file(contentid, "")
-                copy(files_to_copy, commonfolder)
+                commonfolder, _, _ = get_folder_file_url(contentid, "")
+                copy_flat(files_to_copy, commonfolder)
 
         return touched_files
-
-    def get_orphan_files(self, root: Path, files_before: dict, files_touched: dict) -> dict:
-        "Determine old files or folders not used anymore"
-
-        before = set(files_before)
-        touched = set(files_touched)
-        orphans = before.difference(touched)
-
-        return {orphan: files_before[orphan] for orphan in orphans}
 
     def delete_files(self, itemlist: dict):
         "Determine old files or folders not used anymore and delete them"
 
         log = self.log.sublogger("DELETEOLD")
 
-        def rm_dir(folder: Path):
+        def rm_dir(folder: PathC):
             log.out(f"Folder: {folder}")
             for element in folder.iterdir():
                 if element.is_dir():
@@ -693,7 +672,7 @@ class PageContent:
                     element.unlink(missing_ok=True)
             folder.rmdir()
 
-        for orphan in itemlist.values():  # type: Path
+        for orphan in itemlist.values():  # type: PathC
             if orphan.is_file():
                 log.out(f"File: {orphan}")
                 orphan.unlink(missing_ok=True)
@@ -749,14 +728,14 @@ class PageContent:
             #    pprint(global_page_struct, width=200, depth=4, stream=sf)
 
             # Delete old files
-            delete_files = self.get_orphan_files(webroot.path, files_before, touched_files)
+            delete_files = get_orphan_files(files_before, touched_files)
             self.delete_files(delete_files)
 
             # Create file index?
             fileindex = self.pageconfig.FEATURES.get("generate:fileindex", None)
             if isinstance(fileindex, Path):
                 if not fileindex.is_absolute():
-                    fileindex = self.pageconfig.ROOT / fileindex
+                    fileindex = PathC(self.pageconfig.ROOT / fileindex)
 
                 with open(str(fileindex), "w") as fi:
                     fi.write("File index of generation")

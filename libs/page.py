@@ -1,6 +1,8 @@
 import subprocess
 import sys
 from pathlib import Path
+
+from libs.filecopying import PathC
 from libs.pagecontent import PageContent
 from libs.repo import RepoDir
 from libs.streamlogging import Logger
@@ -36,38 +38,10 @@ class Page:
         self.log.err(text)
         raise Exception(text)
 
-    """
-    def _create_absolute_pagepaths(self):
-        # pageconfig.ROOT
-        if isinstance(self.pageconfig.ROOT, Path):
-            # Path set
-            if not self.pageconfig.ROOT.is_absolute():
-                self.pageconfig.ROOT = self.config.ROOT / self.pageconfig.ROOT
-        else:
-            # Not set or unknown type
-            self.pageconfig.ROOT = self.config.ROOT
-
-        root = self.pageconfig.ROOT
-
-        # pageconfig.CLONE_DESTINATIONS
-        self.pageconfig.CLONE_DESTINATIONS = {
-            key: path if path.is_absolute() else root / path
-            for key, path in self.pageconfig.CLONE_DESTINATIONS.items()  # type: str, Path
-        }
-
-        # pageconfig.WEBROOT
-        if not self.pageconfig.WEBROOT.is_absolute():
-            self.pageconfig.WEBROOT = root / self.pageconfig.WEBROOT
-
-        # pageconfig.LOGFILE
-        if not self.pageconfig.LOGFILE.is_absolute():
-            self.pageconfig.LOGFILE = root / self.pageconfig.LOGFILE
-    """
-
     def _check_pagepaths(self):
         # Create CLONE_DESTINATIONS folders
         for path in self.pageconfig.CLONE_DESTINATIONS.values():
-            p = Path(path)
+            p = PathC(path)
             p.mkdir(parents=True, exist_ok=True)
 
         # Create logfile folders
@@ -95,7 +69,7 @@ class Page:
         clonefolder = self.pageconfig.CLONE_DESTINATIONS[key]
 
         for gitid in self.pageconfig.GIT_SOURCES[key].keys():
-            folder = clonefolder / Path(gitid)
+            folder = PathC(clonefolder) / gitid
             if folder.is_dir():
                 ret[gitid] = RepoDir(folder, gitid)
             else:
@@ -103,7 +77,7 @@ class Page:
 
         return ret
 
-    def clone(self, repoid: str, folder: Path, url: str):
+    def clone(self, repoid: str, folder: PathC, url: str):
         if folder.exists():
             # git --git-dir=sausix_main/.git pull "https://github.com/sausix/hackersweblog.net-author.git"
             self.log.out(f"Pulling {repoid} from {url} into {folder}")
@@ -124,7 +98,7 @@ class Page:
             self.log.err(" ".join(e.args))
 
     def clone_by_key(self, key: str, gitid: str, url: str):
-        directory = self.pageconfig.CLONE_DESTINATIONS[key] / Path(gitid)
+        directory = PathC(self.pageconfig.CLONE_DESTINATIONS[key]) / gitid
         self.clone(gitid, directory, url)
 
     def generate_content(self, onlywhenchanged: bool = True):

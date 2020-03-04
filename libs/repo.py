@@ -1,19 +1,19 @@
 from datetime import datetime
 from typing import Union
 from git import Repo
-from pathlib import Path
+from libs.filecopying import PathC
 from libs.dirtools import DirFiles
 
 timeformat = '%Y-%m-%d %H:%M:%S'
 
 
 class RepoDir:
-    def __init__(self, path: Path, repoid: str, maxdepth=10):
+    def __init__(self, path: PathC, repoid: str, maxdepth=10):
         self.path = path
         self.repo: Union[Repo, None] = None
         self.repoid = repoid
         self.maxdepth = maxdepth
-        self.statusfile = Path(str(path) + ".status")
+        self.statusfile = PathC(str(path) + ".status")
         self._files: Union[dict, None] = None
         self._dirloader = DirFiles(self.path)
         self.reload()
