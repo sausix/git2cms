@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Tuple, Dict, Union
 from libs.filecopying import PathC
 import re
@@ -35,6 +35,8 @@ required_content_keys = {"title", "date", "description"}
 reserved_content_keys = {"lang", "langs", "otherlangs", "gitsource", "mdsource", "author", "url",
                          "id", "links", "file", "files"}
 
+basemodels = "content.html", "author.html"
+
 
 def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
     if key in dictcollection:
@@ -43,6 +45,29 @@ def _getcreate_subdict(dictcollection: dict, key: str, garbage: list) -> dict:
     d = dictcollection[key] = dict()
     garbage.append(d)
     return d
+
+
+def get_folders_of_files(files: dict) -> dict:
+    retfolders = dict()
+
+    def addparent(p: PathC, depth: int):
+        pstr = str(p)
+        if pstr in retfolders:
+            # Folder and all parents already in retfolders
+            return
+
+        retfolders[pstr] = p
+        if depth > 0:
+            # Check parent too
+            addparent(p.parent, depth-1)
+
+    for fileid, file in files.items():
+        relpath = PathC(fileid)
+        if len(relpath.parents) > 1:
+            # File not in root folder
+            addparent(relpath.parent, len(relpath.parents)-2)
+
+    return retfolders
 
 
 def get_orphan_files(files_before: dict, files_touched: dict) -> dict:
@@ -443,6 +468,9 @@ class PageContent:
                 for lang, raw_content in raw_contentl.items():  # type: str, dict
                     contentl = {lang: raw_content}
 
+                    # Link author
+                    raw_content["author"] = author
+
                     # (3.)
                     tags: set = raw_content["tags"]
                     for tag in tags:  # type: str
@@ -452,6 +480,7 @@ class PageContent:
                     # (4.)
                     langl = _getcreate_subdict(global_langsl, lang, garbage)
                     self._addmerge(contentid, contentl, langl, f"langs[{lang}]")
+
 
         return ret_merged, garbage
 
@@ -592,12 +621,7 @@ class PageContent:
                 # No changes, just an informational request
                 return rfolder, rfile, parse.quote(cid)
 
-            if str(rfolder) not in touched_files:
-                # Folder may not exist yet
-                createdfolders = rfolder.mkdir_result(parents=True, exist_ok=True)
-                if createdfolders:
-                    # Created some folders. Track them.
-                    touched_files.update({str(f.relative_to(webroot)): f for f in createdfolders})
+            rfolder.mkdir(parents=True, exist_ok=True)
 
             relfile = rfile.relative_to(webroot)
             fileid = str(relfile)
@@ -616,10 +640,10 @@ class PageContent:
                 touched_files[newid] = newdest
 
         # Load html generator
-        generator = ContentGenerator(templates, default_template)
+        generator = ContentGenerator(templates, basemodels, self.log.sublogger("GENERATOR"), default_template)
 
         # Install files of all templates
-        touched_files.update(generator.install_template_files(webroot))
+        generator.install_template_files(webroot, touched_files)
 
         # Write contents
         contentsl = namespace_struct["contents"]
@@ -708,6 +732,9 @@ class PageContent:
             linkgarbage = self.link_contents(global_page_struct)
             garbage.extend(linkgarbage)
 
+            # Create localized lists
+
+
             # ### WEBROOT access ###
             writedir = self.pageconfig.WEBROOT
             if not writedir.is_dir():
@@ -722,13 +749,19 @@ class PageContent:
             # Update files on disk
             touched_files = self.write_global_page_struct(global_page_struct, webroot.path, repos["TEMPLATES"])
 
+            touched_folders = get_folders_of_files(touched_files)
+
+            touched_filesfolders = dict()
+            touched_filesfolders.update(touched_files)
+            touched_filesfolders.update(touched_folders)
+
             #from pprint import pprint
             #structfile: Path = self.pageconfig.ROOT / "struct.txt"
             #with open(str(structfile), "w") as sf:
             #    pprint(global_page_struct, width=200, depth=4, stream=sf)
 
             # Delete old files
-            delete_files = get_orphan_files(files_before, touched_files)
+            delete_files = get_orphan_files(files_before, touched_filesfolders)
             self.delete_files(delete_files)
 
             # Create file index?
@@ -740,8 +773,8 @@ class PageContent:
                 with open(str(fileindex), "w") as fi:
                     fi.write("File index of generation")
 
-                    fi.write("\n\nTouched files:\n")
-                    for file in touched_files:
+                    fi.write("\n\nTouched:\n")
+                    for file in touched_filesfolders:
                         fi.write(f"  {file}\n")
 
                     fi.write("\n\nDeleted files:\n")

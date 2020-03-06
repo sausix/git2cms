@@ -53,7 +53,7 @@ class HackersweblogConfig(PageConfig):
     # Where to write generated content to.
     #  Script-User need either write access to this directory or http server user need read access there.
     # WEBROOT = Path("/srv/http/hackersweblog.net/beta")
-    WEBROOT = Path("webroot")
+    WEBROOT = Path("/srv/http")
 
     # Static directories under WEBROOT wont be modified or deleted.
     WEBROOT_STATIC_DIRS = {

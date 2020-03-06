@@ -29,3 +29,4 @@ Requirements:
 * markdown, PyPI: `markdown`
 * yaml, PyPI: `PyYAML`
 * git, PyPI: `GitPython`
+* Jinja2, PyPI: `Jinja2`
